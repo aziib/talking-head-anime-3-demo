@@ -7,6 +7,10 @@ import numpy
 import scipy.optimize
 import wx
 
+import tha3.mocap.ifacialmocap_add as ifadd
+from tha3.mocap.ifacialmocap_constants import RIGHT_EYE_BONE_X, RIGHT_EYE_BONE_Y, RIGHT_EYE_BONE_Z, LEFT_EYE_BONE_X, LEFT_EYE_BONE_Y, LEFT_EYE_BONE_Z, \
+    HEAD_BONE_QUAT, LEFT_EYE_BONE_QUAT, RIGHT_EYE_BONE_QUAT
+
 from tha3.mocap.ifacialmocap_constants import MOUTH_SMILE_LEFT, MOUTH_SHRUG_UPPER, MOUTH_SMILE_RIGHT, \
     BROW_INNER_UP, BROW_OUTER_UP_RIGHT, BROW_OUTER_UP_LEFT, BROW_DOWN_LEFT, BROW_DOWN_RIGHT, EYE_WIDE_LEFT, \
     EYE_WIDE_RIGHT, EYE_BLINK_LEFT, EYE_BLINK_RIGHT, CHEEK_SQUINT_LEFT, CHEEK_SQUINT_RIGHT, EYE_LOOK_IN_LEFT, \
@@ -16,6 +20,12 @@ from tha3.mocap.ifacialmocap_constants import MOUTH_SMILE_LEFT, MOUTH_SHRUG_UPPE
 from tha3.mocap.ifacialmocap_pose_converter import IFacialMocapPoseConverter
 from tha3.poser.modes.pose_parameters import get_pose_parameters
 
+import tha3.mocap.ifacialmocap_add as ifadd
+
+class SmartPhoneApp(Enum):
+    IPHONE = 1
+    ANDROID = 2
+    VMC = 3
 
 class EyebrowDownMode(Enum):
     TROUBLED = 1
@@ -60,6 +70,7 @@ class IFacialMocapPoseConverter25Args:
                  mouth_funnel_max_value: float = 0.5,
                  iris_small_left=0.0,
                  iris_small_right=0.0):
+#                 sp_app_choice: SmartPhoneApp = SmartPhoneApp.IPHONE
         self.iris_small_right = iris_small_left
         self.iris_small_left = iris_small_right
         self.wink_mode = wink_mode
@@ -77,6 +88,7 @@ class IFacialMocapPoseConverter25Args:
         self.eyebrow_down_mode = eyebrow_down_mode
         self.lower_smile_threshold = lower_smile_threshold
         self.upper_smile_threshold = upper_smile_threshold
+#        self.sp_app_choice = sp_app_choice
 
 
 class IFacialMocapPoseConverter25(IFacialMocapPoseConverter):
@@ -149,6 +161,25 @@ class IFacialMocapPoseConverter25(IFacialMocapPoseConverter):
         parent.GetSizer().Add(self.panel, 0, wx.EXPAND)
 
         if True:
+            sp_app_text = wx.StaticText(self.panel, label=" --- Motion Capture Method--- ",
+                                                   style=wx.ALIGN_CENTER)
+            self.panel_sizer.Add(sp_app_text, 0, wx.EXPAND)
+
+            self.sp_app_choice = wx.Choice(
+                self.panel,
+                choices=[
+                    "iFacialMocap (iPhone)",
+                    "MeowFace (Android)",
+                    "VMC Protocol",
+                ])
+            self.sp_app_choice.SetSelection(2)
+            self.panel_sizer.Add(self.sp_app_choice, 0, wx.EXPAND)
+            self.sp_app_choice.Bind(wx.EVT_CHOICE, self.change_sp_app)
+
+            separator = wx.StaticLine(self.panel, -1, size=(236, 3))
+            self.panel_sizer.Add(separator, 0, wx.EXPAND)
+
+        if True:
             eyebrow_down_mode_text = wx.StaticText(self.panel, label=" --- Eyebrow Down Mode --- ",
                                                    style=wx.ALIGN_CENTER)
             self.panel_sizer.Add(eyebrow_down_mode_text, 0, wx.EXPAND)
@@ -165,7 +196,7 @@ class IFacialMocapPoseConverter25(IFacialMocapPoseConverter):
             self.panel_sizer.Add(self.eyebrow_down_mode_choice, 0, wx.EXPAND)
             self.eyebrow_down_mode_choice.Bind(wx.EVT_CHOICE, self.change_eyebrow_down_mode)
 
-            separator = wx.StaticLine(self.panel, -1, size=(256, 5))
+            separator = wx.StaticLine(self.panel, -1, size=(234, 3))
             self.panel_sizer.Add(separator, 0, wx.EXPAND)
 
         if True:
@@ -182,7 +213,7 @@ class IFacialMocapPoseConverter25(IFacialMocapPoseConverter):
             self.panel_sizer.Add(self.wink_mode_choice, 0, wx.EXPAND)
             self.wink_mode_choice.Bind(wx.EVT_CHOICE, self.change_wink_mode)
 
-            separator = wx.StaticLine(self.panel, -1, size=(256, 5))
+            separator = wx.StaticLine(self.panel, -1, size=(234, 3))
             self.panel_sizer.Add(separator, 0, wx.EXPAND)
 
         if True:
@@ -204,7 +235,7 @@ class IFacialMocapPoseConverter25(IFacialMocapPoseConverter):
             self.panel_sizer.Add(self.link_left_right_irises, wx.SizerFlags().CenterHorizontal().Border())
             self.link_left_right_irises.Bind(wx.EVT_CHECKBOX, self.link_left_right_irises_clicked)
 
-            separator = wx.StaticLine(self.panel, -1, size=(256, 5))
+            separator = wx.StaticLine(self.panel, -1, size=(234, 3))
             self.panel_sizer.Add(separator, 0, wx.EXPAND)
 
         if True:
@@ -220,13 +251,94 @@ class IFacialMocapPoseConverter25(IFacialMocapPoseConverter):
                 self.panel, minValue=0, maxValue=60, value=20, style=wx.HORIZONTAL)
             self.panel_sizer.Add(self.breathing_frequency_slider, 0, wx.EXPAND)
 
-            self.breathing_gauge = wx.Gauge(self.panel, style=wx.GA_HORIZONTAL, range=1000)
+#            self.breathing_gauge = wx.Gauge(self.panel, style=wx.GA_HORIZONTAL, range=1000)
+            self.breathing_gauge = wx.Gauge(self.panel, style=wx.GA_HORIZONTAL, range=1000, size=(234, 8))
             self.panel_sizer.Add(self.breathing_gauge, 0, wx.EXPAND)
+
+#Pose calibration panel
+            separator = wx.StaticLine(self.panel, -1, size=(234, 3))
+            self.panel_sizer.Add(separator, 0, wx.EXPAND)
+
+        if True:
+            self.calibrate_front_position_button = wx.Button(self.panel, label="Calibrate Front Position")
+            self.calibrate_front_position_button.Bind(wx.EVT_BUTTON, self.calibrate_front_position_clicked)
+            self.panel_sizer.Add(self.calibrate_front_position_button, 0, wx.EXPAND)
+
+            self.reset_front_position_button = wx.Button(self.panel, label="Reset Front Position")
+            self.reset_front_position_button.Bind(wx.EVT_BUTTON, self.reset_front_position_clicked)
+            self.panel_sizer.Add(self.reset_front_position_button, 0, wx.EXPAND)
+
+            self.calibrate_head_x_text = wx.StaticText(
+                self.panel, label=" --- Head_x --- ", style=wx.ALIGN_CENTER)
+            self.panel_sizer.Add(self.calibrate_head_x_text, 0, wx.EXPAND)
+
+            self.calibrate_head_x_slider = wx.Slider(
+                self.panel, minValue=-80, maxValue=80, value=0, style=wx.HORIZONTAL | wx.SL_LABELS)
+            self.panel_sizer.Add(self.calibrate_head_x_slider, 0, wx.EXPAND)
+            self.calibrate_head_x_slider.Bind(wx.EVT_SLIDER, self.change_head_x_slider)
+
+            self.calibrate_head_y_text = wx.StaticText(
+                self.panel, label=" --- Head_y --- ", style=wx.ALIGN_CENTER)
+            self.panel_sizer.Add(self.calibrate_head_y_text, 0, wx.EXPAND)
+
+            self.calibrate_head_y_slider = wx.Slider(
+                self.panel, minValue=-80, maxValue=80, value=0, style=wx.HORIZONTAL | wx.SL_LABELS)
+            self.panel_sizer.Add(self.calibrate_head_y_slider, 0, wx.EXPAND)
+            self.calibrate_head_y_slider.Bind(wx.EVT_SLIDER, self.change_head_y_slider)
+
+            self.calibrate_head_z_text = wx.StaticText(
+                self.panel, label=" --- Neck_z --- ", style=wx.ALIGN_CENTER)
+            self.panel_sizer.Add(self.calibrate_head_z_text, 0, wx.EXPAND)
+
+            self.calibrate_head_z_slider = wx.Slider(
+                self.panel, minValue=-80, maxValue=80, value=0, style=wx.HORIZONTAL | wx.SL_LABELS)
+            self.panel_sizer.Add(self.calibrate_head_z_slider, 0, wx.EXPAND)
+            self.calibrate_head_z_slider.Bind(wx.EVT_SLIDER, self.change_head_z_slider)
+
+            separator = wx.StaticLine(self.panel, -1, size=(234, 3))
+            self.panel_sizer.Add(separator, 0, wx.EXPAND)
+
+#            self.weight_body_text = wx.StaticText(
+#                self.panel, label=" Moving Rate of Body ", style=wx.ALIGN_CENTER)
+#            self.panel_sizer.Add(self.weight_body_text, 0, wx.EXPAND)
+
+            self.calibrate_body_y_text = wx.StaticText(
+#                self.panel, label=" --- Body_y --- ", style=wx.ALIGN_CENTER)
+                self.panel, label=" ---Moving Rate of Body_y --- ", style=wx.ALIGN_CENTER)
+            self.panel_sizer.Add(self.calibrate_body_y_text, 0, wx.EXPAND)
+
+            self.calibrate_body_y_slider = wx.Slider(
+                self.panel, minValue=-10, maxValue=10, value=0, style=wx.HORIZONTAL | wx.SL_LABELS)
+            self.panel_sizer.Add(self.calibrate_body_y_slider, 0, wx.EXPAND)
+            self.calibrate_body_y_slider.Bind(wx.EVT_SLIDER, self.change_body_y_slider)
+
+            self.calibrate_body_z_text = wx.StaticText(
+#                self.panel, label=" --- Body_z --- ", style=wx.ALIGN_CENTER)
+                self.panel, label=" ---Moving Rate of Body_z --- ", style=wx.ALIGN_CENTER)
+            self.panel_sizer.Add(self.calibrate_body_z_text, 0, wx.EXPAND)
+
+            self.calibrate_body_z_slider = wx.Slider(
+                self.panel, minValue=-10, maxValue=10, value=0, style=wx.HORIZONTAL | wx.SL_LABELS)
+            self.panel_sizer.Add(self.calibrate_body_z_slider, 0, wx.EXPAND)
+            self.calibrate_body_z_slider.Bind(wx.EVT_SLIDER, self.change_body_z_slider)
+
+            self.reset_body_button = wx.Button(self.panel, label="Fix Body")
+            self.reset_body_button.Bind(wx.EVT_BUTTON, self.reset_body_clicked)
+            self.panel_sizer.Add(self.reset_body_button, 0, wx.EXPAND)
 
         self.panel_sizer.Fit(self.panel)
 
     def restart_breathing_cycle_clicked(self, event: wx.Event):
         self.breathing_start_time = time.time()
+
+    def change_sp_app(self, event: wx.Event):
+        selected_index = self.sp_app_choice.GetSelection()
+        if selected_index == 0:
+            ifadd.SP_APP_MODE = SmartPhoneApp.IPHONE
+        elif selected_index == 1:
+            ifadd.SP_APP_MODE = SmartPhoneApp.ANDROID
+        else:
+            ifadd.SP_APP_MODE = SmartPhoneApp.VMC
 
     def change_eyebrow_down_mode(self, event: wx.Event):
         selected_index = self.eyebrow_down_mode_choice.GetSelection()
@@ -265,6 +377,58 @@ class IFacialMocapPoseConverter25(IFacialMocapPoseConverter):
             self.iris_right_slider.Enable(True)
         self.change_iris_size(event)
 
+    def calibrate_front_position_clicked(self, event: wx.Event):
+        ifadd.CAL_HEAD_X = ifadd.POS_HEAD_X
+        ifadd.CAL_HEAD_Y = ifadd.POS_HEAD_Y
+        ifadd.CAL_HEAD_Z = ifadd.POS_HEAD_Z
+        # ifadd.CAL_BODY_Y = ifadd.POS_BODY_Y
+        # ifadd.CAL_BODY_Z = ifadd.POS_BODY_Z
+        self.calibrate_head_x_slider.SetValue(ifadd.CAL_HEAD_X)
+        self.calibrate_head_y_slider.SetValue(ifadd.CAL_HEAD_Y)
+        self.calibrate_head_z_slider.SetValue(ifadd.CAL_HEAD_Z)
+        # self.calibrate_body_y_slider.SetValue(ifadd.CAL_BODY_Y)
+        # self.calibrate_body_z_slider.SetValue(ifadd.CAL_BODY_Z)
+
+    def reset_front_position_clicked(self, event: wx.Event):
+        ifadd.CAL_HEAD_X = 0.0
+        ifadd.CAL_HEAD_Y = 0.0
+        ifadd.CAL_HEAD_Z = 0.0
+        # ifadd.CAL_BODY_Y = 0.0
+        # ifadd.CAL_BODY_Z = 0.0
+        self.calibrate_head_x_slider.SetValue(ifadd.CAL_HEAD_X)
+        self.calibrate_head_y_slider.SetValue(ifadd.CAL_HEAD_Y)
+        self.calibrate_head_z_slider.SetValue(ifadd.CAL_HEAD_Z)
+        # self.calibrate_body_y_slider.SetValue(ifadd.CAL_BODY_Y)
+        # self.calibrate_body_z_slider.SetValue(ifadd.CAL_BODY_Z)
+
+
+    def change_head_x_slider(self, event: wx.Event):
+        ifadd.CAL_HEAD_X = self.calibrate_head_x_slider.GetValue()
+#        print(ifadd.CAL_HEAD_X)
+
+    def change_head_y_slider(self, event: wx.Event):
+        ifadd.CAL_HEAD_Y = self.calibrate_head_y_slider.GetValue()
+#        print(ifadd.CAL_HEAD_Y)
+
+    def change_head_z_slider(self, event: wx.Event):
+        ifadd.CAL_HEAD_Z = self.calibrate_head_z_slider.GetValue()
+#        print(ifadd.CAL_HEAD_Z)
+
+    def change_body_y_slider(self, event: wx.Event):
+        ifadd.CAL_BODY_Y = self.calibrate_body_y_slider.GetValue()
+#        print(ifadd.CAL_BODY_Y)
+
+    def change_body_z_slider(self, event: wx.Event):
+        ifadd.CAL_BODY_Z = self.calibrate_body_z_slider.GetValue()
+#        print(ifadd.CAL_BODY_Z)
+
+    def reset_body_clicked(self, event: wx.Event):
+        ifadd.CAL_BODY_Y = 0.0
+        ifadd.CAL_BODY_Z = 0.0
+        self.calibrate_body_y_slider.SetValue(ifadd.CAL_BODY_Y)
+        self.calibrate_body_z_slider.SetValue(ifadd.CAL_BODY_Z)
+
+
     def decompose_head_body_param(self, param, threshold=2.0 / 3):
         if abs(param) < threshold:
             return (param, 0.0)
@@ -276,6 +440,16 @@ class IFacialMocapPoseConverter25(IFacialMocapPoseConverter):
             return (threshold * sign, (abs(param) - threshold) * sign)
 
     def convert(self, ifacialmocap_pose: Dict[str, float]) -> List[float]:
+        if ifadd.SP_APP_MODE == SmartPhoneApp.IPHONE:
+            pose = self.convert_perfectsink(ifacialmocap_pose)
+        elif ifadd.SP_APP_MODE == SmartPhoneApp.ANDROID:
+            pose = self.convert_perfectsink(ifacialmocap_pose)
+        else:
+            pose = self.convert_vmc_vrm0(ifacialmocap_pose)
+        
+        return pose
+
+    def convert_perfectsink(self, ifacialmocap_pose: Dict[str, float]) -> List[float]:
         pose = [0.0 for i in range(self.pose_size)]
 
         smile_value = \
@@ -377,16 +551,31 @@ class IFacialMocapPoseConverter25(IFacialMocapPoseConverter):
 
         # Head rotation
         if True:
-            x_param = clamp(-ifacialmocap_pose[HEAD_BONE_X] * 180.0 / math.pi, -15.0, 15.0) / 15.0
+            # x_param = clamp(-ifacialmocap_pose[HEAD_BONE_X] * 180.0 / math.pi, -15.0, 15.0) / 15.0
+            # pose[self.head_x_index] = x_param
+
+            # y_param = clamp(-ifacialmocap_pose[HEAD_BONE_Y] * 180.0 / math.pi, -10.0, 10.0) / 10.0
+            # pose[self.head_y_index] = y_param
+            # pose[self.body_y_index] = y_param
+
+            # z_param = clamp(ifacialmocap_pose[HEAD_BONE_Z] * 180.0 / math.pi, -15.0, 15.0) / 15.0
+            # pose[self.neck_z_index] = z_param
+            # pose[self.body_z_index] = z_param
+
+            ifadd.POS_HEAD_X = ifacialmocap_pose[HEAD_BONE_X] * 180.0 / math.pi
+            ifadd.POS_HEAD_Y = ifacialmocap_pose[HEAD_BONE_Y] * 180.0 / math.pi
+            ifadd.POS_HEAD_Z = ifacialmocap_pose[HEAD_BONE_Z] * 180.0 / math.pi
+
+            x_param = clamp(-(ifadd.POS_HEAD_X-ifadd.CAL_HEAD_X), -15.0, 15.0) / 15.0
             pose[self.head_x_index] = x_param
 
-            y_param = clamp(-ifacialmocap_pose[HEAD_BONE_Y] * 180.0 / math.pi, -10.0, 10.0) / 10.0
+            y_param = clamp(-(ifadd.POS_HEAD_Y-ifadd.CAL_HEAD_Y), -10.0, 10.0) / 10.0
             pose[self.head_y_index] = y_param
-            pose[self.body_y_index] = y_param
+            pose[self.body_y_index] = y_param * ifadd.CAL_BODY_Y / 10.0
 
-            z_param = clamp(ifacialmocap_pose[HEAD_BONE_Z] * 180.0 / math.pi, -15.0, 15.0) / 15.0
+            z_param = clamp((ifadd.POS_HEAD_Z-ifadd.CAL_HEAD_Z), -15.0, 15.0) / 15.0
             pose[self.neck_z_index] = z_param
-            pose[self.body_z_index] = z_param
+            pose[self.body_z_index] = z_param * ifadd.CAL_BODY_Z / 10.0
 
             # Mouth
         if True:
@@ -457,6 +646,166 @@ class IFacialMocapPoseConverter25(IFacialMocapPoseConverter):
 
         return pose
 
+    def convert_vmc_vrm0(self, ifacialmocap_pose: Dict[str, float]) -> List[float]:
+        pose = [0.0 for i in range(self.pose_size)]
+
+        smile_value = ifacialmocap_pose["Fun"]
+        if smile_value < self.args.lower_smile_threshold:
+            smile_degree = 0.0
+        elif smile_value > self.args.upper_smile_threshold:
+            smile_degree = 1.0
+        else:
+            smile_degree = (smile_value - self.args.lower_smile_threshold) / (
+                    self.args.upper_smile_threshold - self.args.lower_smile_threshold)
+
+        # Eyebrow
+        if True:
+            brow_inner_up = 0.0 # ifacialmocap_pose[BROW_INNER_UP]
+            brow_outer_up_right = 0.0 # ifacialmocap_pose[BROW_OUTER_UP_RIGHT]
+            brow_outer_up_left = 0.0 # ifacialmocap_pose[BROW_OUTER_UP_LEFT]
+
+            brow_up_left = clamp(brow_inner_up + brow_outer_up_left, 0.0, 1.0)
+            brow_up_right = clamp(brow_inner_up + brow_outer_up_right, 0.0, 1.0)
+            pose[self.eyebrow_raised_left_index] = brow_up_left
+            pose[self.eyebrow_raised_right_index] = brow_up_right
+
+            # brow_down_left = (1.0 - smile_degree) \
+            #                  * clamp(ifacialmocap_pose[BROW_DOWN_LEFT] / self.args.eyebrow_down_max_value, 0.0, 1.0)
+            # brow_down_right = (1.0 - smile_degree) \
+            #                   * clamp(ifacialmocap_pose[BROW_DOWN_RIGHT] / self.args.eyebrow_down_max_value, 0.0, 1.0)
+            brow_down_left = 0.0
+            brow_down_right = 0.0
+
+            if self.args.eyebrow_down_mode == EyebrowDownMode.TROUBLED:
+                pose[self.eyebrow_troubled_left_index] = brow_down_left
+                pose[self.eyebrow_troubled_right_index] = brow_down_right
+            elif self.args.eyebrow_down_mode == EyebrowDownMode.ANGRY:
+                pose[self.eyebrow_angry_left_index] = brow_down_left
+                pose[self.eyebrow_angry_right_index] = brow_down_right
+            elif self.args.eyebrow_down_mode == EyebrowDownMode.LOWERED:
+                pose[self.eyebrow_lowered_left_index] = brow_down_left
+                pose[self.eyebrow_lowered_right_index] = brow_down_right
+            elif self.args.eyebrow_down_mode == EyebrowDownMode.SERIOUS:
+                pose[self.eyebrow_serious_left_index] = brow_down_left
+                pose[self.eyebrow_serious_right_index] = brow_down_right
+
+            brow_happy_value = clamp(smile_value, 0.0, 1.0) * smile_degree
+            pose[self.eyebrow_happy_left_index] = brow_happy_value
+            pose[self.eyebrow_happy_right_index] = brow_happy_value
+
+        # Eye
+        if True:
+            # Surprised
+            pose[self.eye_surprised_left_index] = clamp(
+                ifacialmocap_pose["Surprised"] / self.args.eye_wide_max_value, 0.0, 1.0)
+            pose[self.eye_surprised_right_index] = clamp(
+                ifacialmocap_pose["Surprised"] / self.args.eye_wide_max_value, 0.0, 1.0)
+
+            # Wink
+            if self.args.wink_mode == WinkMode.NORMAL:
+                wink_left_index = self.eye_wink_left_index
+                wink_right_index = self.eye_wink_right_index
+            else:
+                wink_left_index = self.eye_relaxed_left_index
+                wink_right_index = self.eye_relaxed_right_index
+            pose[wink_left_index] = (1.0 - smile_degree) * clamp(
+                (ifacialmocap_pose["BlinkLeft"] + ifacialmocap_pose["Blink"]) / self.args.eye_blink_max_value, 0.0, 1.0)
+            pose[wink_right_index] = (1.0 - smile_degree) * clamp(
+                (ifacialmocap_pose["BlinkRight"] + ifacialmocap_pose["Blink"]) / self.args.eye_blink_max_value, 0.0, 1.0)
+            pose[self.eye_happy_wink_left_index] = smile_degree * clamp(
+                (ifacialmocap_pose["BlinkLeft"] + ifacialmocap_pose["Blink"]) / self.args.eye_blink_max_value, 0.0, 1.0)
+            pose[self.eye_happy_wink_right_index] = smile_degree * clamp(
+                (ifacialmocap_pose["BlinkRight"] + ifacialmocap_pose["Blink"]) / self.args.eye_blink_max_value, 0.0, 1.0)
+
+            # Lower eyelid
+            cheek_squint_denom = self.args.cheek_squint_max_value - self.args.cheek_squint_min_value
+            # pose[self.eye_raised_lower_eyelid_left_index] = \
+            #     clamp(
+            #         (ifacialmocap_pose[CHEEK_SQUINT_LEFT] - self.args.cheek_squint_min_value) / cheek_squint_denom,
+            #         0.0, 1.0)
+            # pose[self.eye_raised_lower_eyelid_right_index] = \
+            #     clamp(
+            #         (ifacialmocap_pose[CHEEK_SQUINT_RIGHT] - self.args.cheek_squint_min_value) / cheek_squint_denom,
+            #         0.0, 1.0)
+            pose[self.eye_raised_lower_eyelid_left_index] = 0.0
+            pose[self.eye_raised_lower_eyelid_right_index] = 0.0
+
+        # Iris rotation
+        if True:
+            eye_rotation_y = (ifacialmocap_pose[RIGHT_EYE_BONE_Y]
+                              + ifacialmocap_pose[LEFT_EYE_BONE_Y]) / 2.0 * 4.0 * self.args.eye_rotation_factor
+            pose[self.iris_rotation_y_index] = clamp(eye_rotation_y, -1.0, 1.0)
+
+            eye_rotation_x = (ifacialmocap_pose[RIGHT_EYE_BONE_X]
+                              + ifacialmocap_pose[LEFT_EYE_BONE_X]) / 2.0 * 4.0 * self.args.eye_rotation_factor
+            pose[self.iris_rotation_x_index] = clamp(eye_rotation_x, -1.0, 1.0)
+
+        # Iris size
+        if True:
+            pose[self.iris_small_left_index] = self.args.iris_small_left
+            pose[self.iris_small_right_index] = self.args.iris_small_right
+
+        # Head rotation
+        if True:
+            # x_param = clamp(-ifacialmocap_pose[HEAD_BONE_X] * 180.0 / math.pi, -15.0, 15.0) / 15.0
+            # pose[self.head_x_index] = x_param
+
+            # y_param = clamp(-ifacialmocap_pose[HEAD_BONE_Y] * 180.0 / math.pi, -10.0, 10.0) / 10.0
+            # pose[self.head_y_index] = y_param
+            # pose[self.body_y_index] = y_param
+
+            # z_param = clamp(ifacialmocap_pose[HEAD_BONE_Z] * 180.0 / math.pi, -15.0, 15.0) / 15.0
+            # pose[self.neck_z_index] = z_param
+            # pose[self.body_z_index] = z_param
+
+            ifadd.POS_HEAD_X = ifacialmocap_pose[HEAD_BONE_X] * 180.0 / math.pi * 4.0
+            ifadd.POS_HEAD_Y = ifacialmocap_pose[HEAD_BONE_Y] * 180.0 / math.pi * 4.0
+            ifadd.POS_HEAD_Z = ifacialmocap_pose[HEAD_BONE_Z] * 180.0 / math.pi * 4.0
+
+            x_param = clamp(-(ifadd.POS_HEAD_X-ifadd.CAL_HEAD_X), -15.0, 15.0) / 15.0
+            pose[self.head_x_index] = x_param
+
+            y_param = clamp(-(ifadd.POS_HEAD_Y-ifadd.CAL_HEAD_Y), -10.0, 10.0) / 10.0
+            pose[self.head_y_index] = y_param
+            pose[self.body_y_index] = y_param * ifadd.CAL_BODY_Y / 10.0
+
+            z_param = clamp((ifadd.POS_HEAD_Z-ifadd.CAL_HEAD_Z), -15.0, 15.0) / 15.0
+            pose[self.neck_z_index] = z_param
+            pose[self.body_z_index] = z_param * ifadd.CAL_BODY_Z / 10.0
+
+            # Mouth
+        if True:
+            # jaw_open_denom = self.args.jaw_open_max_value - self.args.jaw_open_min_value
+            # mouth_open = clamp((ifacialmocap_pose[JAW_OPEN] - self.args.jaw_open_min_value) / jaw_open_denom, 0.0, 1.0)
+            # pose[self.mouth_aaa_index] = ifacialmocap_pose["A"]
+            pose[self.mouth_raised_corner_left_index] = clamp(smile_value, 0.0, 1.0)
+            pose[self.mouth_raised_corner_right_index] = clamp(smile_value, 0.0, 1.0)
+
+            pose[self.mouth_lowered_corner_left_index] = 0.0
+            pose[self.mouth_lowered_corner_right_index] = 0.0
+
+            pose[self.mouth_aaa_index] = clamp(ifacialmocap_pose["A"], 0.0, 1.0)
+            pose[self.mouth_iii_index] = clamp(ifacialmocap_pose["I"], 0.0, 1.0)
+            pose[self.mouth_uuu_index] = clamp(ifacialmocap_pose["U"], 0.0, 1.0)
+            pose[self.mouth_eee_index] = clamp(ifacialmocap_pose["E"], 0.0, 1.0)
+            pose[self.mouth_ooo_index] = clamp(ifacialmocap_pose["O"], 0.0, 1.0)
+
+        if self.panel is not None:
+            frequency = self.breathing_frequency_slider.GetValue()
+            if frequency == 0:
+                value = 0.0
+                pose[self.breathing_index] = value
+                self.breathing_start_time = time.time()
+            else:
+                period = 60.0 / frequency
+                now = time.time()
+                diff = now - self.breathing_start_time
+                frac = (diff % period) / period
+                value = (-math.cos(2 * math.pi * frac) + 1.0) / 2.0
+                pose[self.breathing_index] = value
+            self.breathing_gauge.SetValue(int(1000 * value))
+
+        return pose
 
 def create_ifacialmocap_pose_converter(
         args: Optional[IFacialMocapPoseConverter25Args] = None) -> IFacialMocapPoseConverter:

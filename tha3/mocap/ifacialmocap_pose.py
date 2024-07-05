@@ -9,6 +9,20 @@ def create_default_ifacialmocap_pose():
     for blendshape_name in BLENDSHAPE_NAMES:
         data[blendshape_name] = 0.0
 
+    data["Joy"] = 0.0
+    data["Angry"] = 0.0
+    data["Sorrow"] = 0.0
+    data["Fun"] = 0.0
+    data["Surprised"] = 0.0
+    data["A"] = 0.0
+    data["I"] = 0.0
+    data["U"] = 0.0
+    data["E"] = 0.0
+    data["O"] = 0.0
+    data["BlinkLeft"] = 0.0
+    data["BlinkRight"] = 0.0
+    data["Blink"] = 0.0
+
     data[HEAD_BONE_X] = 0.0
     data[HEAD_BONE_Y] = 0.0
     data[HEAD_BONE_Z] = 0.0

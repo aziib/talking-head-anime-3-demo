@@ -193,6 +193,8 @@ class MainFrame(wx.Frame):
         self.result_image_bitmap = wx.Bitmap(self.image_size, self.image_size)
         self.source_image_dirty = True
 
+        self.image_save_counter = 0  # Initialize a counter for saved images
+
     def init_left_panel(self):
         self.control_panel = wx.Panel(self, style=wx.SIMPLE_BORDER, size=(self.image_size, -1))
         self.left_panel = wx.Panel(self, style=wx.SIMPLE_BORDER)
@@ -290,6 +292,10 @@ class MainFrame(wx.Frame):
         self.save_image_button = wx.Button(self.right_panel, wx.ID_ANY, "\nSave Image\n\n")
         right_panel_sizer.Add(self.save_image_button, 1, wx.EXPAND)
         self.save_image_button.Bind(wx.EVT_BUTTON, self.on_save_image)
+
+        self.quick_save_image_button = wx.Button(self.right_panel, wx.ID_ANY, "\nQuick Save Image\n\n")
+        right_panel_sizer.Add(self.quick_save_image_button, 1, wx.EXPAND)
+        self.quick_save_image_button.Bind(wx.EVT_BUTTON, self.on_quick_save_image)
 
         right_panel_sizer.Fit(self.right_panel)
         self.main_sizer.Add(self.right_panel, 0, wx.FIXED_MINSIZE)
@@ -407,6 +413,16 @@ class MainFrame(wx.Frame):
         self.Refresh()
         self.Update()
 
+    def on_quick_save_image(self, event: wx.Event):
+        if self.last_output_numpy_image is None:
+            logging.info("There is no output image to quick save!!!")
+            return
+
+        image_file_name = f"output/image_{self.image_save_counter:04d}.png"
+        self.save_last_numpy_image(image_file_name)
+        self.image_save_counter += 1  # Increment the counter after saving
+        print(f"Image saved quickly as: {image_file_name}")
+
     def on_save_image(self, event: wx.Event):
         if self.last_output_numpy_image is None:
             logging.info("There is no output image to save!!!")
@@ -450,7 +466,8 @@ if __name__ == "__main__":
         help='The model to use.')
     args = parser.parse_args()
 
-    device = torch.device('cuda')
+#    device = torch.device('cuda')
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     try:
         poser = load_poser(args.model, device)
     except RuntimeError as e:
