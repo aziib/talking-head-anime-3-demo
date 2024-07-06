@@ -1,6 +1,6 @@
 # Demo Code for "Talking Head(?) Anime from A Single Image 3: Now the Body Too"
 
-This repository contains demo programs for the [Talking Head(?) Anime from a Single Image 3: Now the Body Too](https://pkhungurn.github.io/talking-head-anime-3/index.html) project. As the name implies, the project allows you to animate anime characters, and you only need a single image of that character to do so. There are two demo programs:
+This repository contains demo programs for the [Talking Head(?) Anime from a Single Image 3: Now the Body Too](https://pkhungurn.github.io/talking-head-anime-3/index.html) and from [pale color gitlab version](https://gitlab.com/pale_color/talking-head-anime-3-with-switchable-images) that i've modified. As the name implies, the project allows you to animate anime characters, and you only need a single image of that character to do so. There are two demo programs:
 
 * The ``manual_poser`` lets you manipulate a character's facial expression, head rotation, body rotation, and chest expansion due to breathing through a graphical user interface. 
 * ``ifacialmocap_puppeteer`` lets you transfer your facial motion to an anime character.
