@@ -26,6 +26,9 @@ class SmartPhoneApp(Enum):
     IPHONE = 1
     ANDROID = 2
     VMC = 3
+    VMCPERFECTSYNC = 4
+    IFACIALMOCAPPC = 5
+    VTUBESTUDIO = 6
 
 class EyebrowDownMode(Enum):
     TROUBLED = 1
@@ -170,11 +173,15 @@ class IFacialMocapPoseConverter25(IFacialMocapPoseConverter):
                 choices=[
                     "iFacialMocap (iPhone)",
                     "MeowFace (Android)",
-                    "VMC Protocol",
+                    "VMC Protocol (VRM0/VRM1)",
+                    "VMC Protocol (Perfect Sync)",
+                    "iFacialMocap (PC)",
+                    "VTubeStudio (iPhone/Android)",
                 ])
             self.sp_app_choice.SetSelection(2)
             self.panel_sizer.Add(self.sp_app_choice, 0, wx.EXPAND)
             self.sp_app_choice.Bind(wx.EVT_CHOICE, self.change_sp_app)
+            self.change_sp_app(self)
 
             separator = wx.StaticLine(self.panel, -1, size=(236, 3))
             self.panel_sizer.Add(separator, 0, wx.EXPAND)
@@ -337,6 +344,14 @@ class IFacialMocapPoseConverter25(IFacialMocapPoseConverter):
             ifadd.SP_APP_MODE = SmartPhoneApp.IPHONE
         elif selected_index == 1:
             ifadd.SP_APP_MODE = SmartPhoneApp.ANDROID
+        elif selected_index == 2:
+            ifadd.SP_APP_MODE = SmartPhoneApp.VMC
+        elif selected_index == 3:
+            ifadd.SP_APP_MODE = SmartPhoneApp.VMCPERFECTSYNC
+        elif selected_index == 4:
+            ifadd.SP_APP_MODE = SmartPhoneApp.IFACIALMOCAPPC
+        elif selected_index == 5:
+            ifadd.SP_APP_MODE = SmartPhoneApp.VTUBESTUDIO
         else:
             ifadd.SP_APP_MODE = SmartPhoneApp.VMC
 
@@ -378,14 +393,14 @@ class IFacialMocapPoseConverter25(IFacialMocapPoseConverter):
         self.change_iris_size(event)
 
     def calibrate_front_position_clicked(self, event: wx.Event):
-        ifadd.CAL_HEAD_X = ifadd.POS_HEAD_X
-        ifadd.CAL_HEAD_Y = ifadd.POS_HEAD_Y
-        ifadd.CAL_HEAD_Z = ifadd.POS_HEAD_Z
+        ifadd.CAL_HEAD_X = round(ifadd.POS_HEAD_X, 0)
+        ifadd.CAL_HEAD_Y = round(ifadd.POS_HEAD_Y, 0)
+        ifadd.CAL_HEAD_Z = round(ifadd.POS_HEAD_Z, 0)
         # ifadd.CAL_BODY_Y = ifadd.POS_BODY_Y
         # ifadd.CAL_BODY_Z = ifadd.POS_BODY_Z
-        self.calibrate_head_x_slider.SetValue(ifadd.CAL_HEAD_X)
-        self.calibrate_head_y_slider.SetValue(ifadd.CAL_HEAD_Y)
-        self.calibrate_head_z_slider.SetValue(ifadd.CAL_HEAD_Z)
+        self.calibrate_head_x_slider.SetValue(int(ifadd.CAL_HEAD_X))
+        self.calibrate_head_y_slider.SetValue(int(ifadd.CAL_HEAD_Y))
+        self.calibrate_head_z_slider.SetValue(int(ifadd.CAL_HEAD_Z))
         # self.calibrate_body_y_slider.SetValue(ifadd.CAL_BODY_Y)
         # self.calibrate_body_z_slider.SetValue(ifadd.CAL_BODY_Z)
 
@@ -395,38 +410,38 @@ class IFacialMocapPoseConverter25(IFacialMocapPoseConverter):
         ifadd.CAL_HEAD_Z = 0.0
         # ifadd.CAL_BODY_Y = 0.0
         # ifadd.CAL_BODY_Z = 0.0
-        self.calibrate_head_x_slider.SetValue(ifadd.CAL_HEAD_X)
-        self.calibrate_head_y_slider.SetValue(ifadd.CAL_HEAD_Y)
-        self.calibrate_head_z_slider.SetValue(ifadd.CAL_HEAD_Z)
+        self.calibrate_head_x_slider.SetValue(int(ifadd.CAL_HEAD_X))
+        self.calibrate_head_y_slider.SetValue(int(ifadd.CAL_HEAD_Y))
+        self.calibrate_head_z_slider.SetValue(int(ifadd.CAL_HEAD_Z))
         # self.calibrate_body_y_slider.SetValue(ifadd.CAL_BODY_Y)
         # self.calibrate_body_z_slider.SetValue(ifadd.CAL_BODY_Z)
 
 
     def change_head_x_slider(self, event: wx.Event):
-        ifadd.CAL_HEAD_X = self.calibrate_head_x_slider.GetValue()
+        ifadd.CAL_HEAD_X = float(self.calibrate_head_x_slider.GetValue())
 #        print(ifadd.CAL_HEAD_X)
 
     def change_head_y_slider(self, event: wx.Event):
-        ifadd.CAL_HEAD_Y = self.calibrate_head_y_slider.GetValue()
+        ifadd.CAL_HEAD_Y = float(self.calibrate_head_y_slider.GetValue())
 #        print(ifadd.CAL_HEAD_Y)
 
     def change_head_z_slider(self, event: wx.Event):
-        ifadd.CAL_HEAD_Z = self.calibrate_head_z_slider.GetValue()
+        ifadd.CAL_HEAD_Z = float(self.calibrate_head_z_slider.GetValue())
 #        print(ifadd.CAL_HEAD_Z)
 
     def change_body_y_slider(self, event: wx.Event):
-        ifadd.CAL_BODY_Y = self.calibrate_body_y_slider.GetValue()
+        ifadd.CAL_BODY_Y = float(self.calibrate_body_y_slider.GetValue())
 #        print(ifadd.CAL_BODY_Y)
 
     def change_body_z_slider(self, event: wx.Event):
-        ifadd.CAL_BODY_Z = self.calibrate_body_z_slider.GetValue()
+        ifadd.CAL_BODY_Z = float(self.calibrate_body_z_slider.GetValue())
 #        print(ifadd.CAL_BODY_Z)
 
     def reset_body_clicked(self, event: wx.Event):
         ifadd.CAL_BODY_Y = 0.0
         ifadd.CAL_BODY_Z = 0.0
-        self.calibrate_body_y_slider.SetValue(ifadd.CAL_BODY_Y)
-        self.calibrate_body_z_slider.SetValue(ifadd.CAL_BODY_Z)
+        self.calibrate_body_y_slider.SetValue(int(ifadd.CAL_BODY_Y))
+        self.calibrate_body_z_slider.SetValue(int(ifadd.CAL_BODY_Z))
 
 
     def decompose_head_body_param(self, param, threshold=2.0 / 3):
@@ -439,10 +454,26 @@ class IFacialMocapPoseConverter25(IFacialMocapPoseConverter):
                 sign = 1.0
             return (threshold * sign, (abs(param) - threshold) * sign)
 
-    def convert(self, ifacialmocap_pose: Dict[str, float]) -> List[float]:
+    def convert_old(self, ifacialmocap_pose: Dict[str, float]) -> List[float]:
         if ifadd.SP_APP_MODE == SmartPhoneApp.IPHONE:
             pose = self.convert_perfectsink(ifacialmocap_pose)
         elif ifadd.SP_APP_MODE == SmartPhoneApp.ANDROID:
+            pose = self.convert_perfectsink(ifacialmocap_pose)
+        elif ifadd.SP_APP_MODE == SmartPhoneApp.VMC:
+            pose = self.convert_vmc_vrm0(ifacialmocap_pose)
+        elif ifadd.SP_APP_MODE == SmartPhoneApp.VMCPERFECTSYNC:
+            pose = self.convert_perfectsink(ifacialmocap_pose)
+        elif ifadd.SP_APP_MODE == SmartPhoneApp.IFACIALMOCAPPC:
+            pose = self.convert_perfectsink(ifacialmocap_pose)
+        elif ifadd.SP_APP_MODE == SmartPhoneApp.VTUBESTUDIO:
+            pose = self.convert_perfectsink(ifacialmocap_pose)
+        else:
+            pose = self.convert_vmc_vrm0(ifacialmocap_pose)
+        
+        return pose
+
+    def convert(self, ifacialmocap_pose: Dict[str, float], isPerfectsync: bool) -> List[float]:
+        if isPerfectsync == True:
             pose = self.convert_perfectsink(ifacialmocap_pose)
         else:
             pose = self.convert_vmc_vrm0(ifacialmocap_pose)
@@ -709,13 +740,13 @@ class IFacialMocapPoseConverter25(IFacialMocapPoseConverter):
                 wink_left_index = self.eye_relaxed_left_index
                 wink_right_index = self.eye_relaxed_right_index
             pose[wink_left_index] = (1.0 - smile_degree) * clamp(
-                (ifacialmocap_pose["BlinkLeft"] + ifacialmocap_pose["Blink"]) / self.args.eye_blink_max_value, 0.0, 1.0)
+                (ifacialmocap_pose["Blink_L"] + ifacialmocap_pose["Blink"]) / self.args.eye_blink_max_value, 0.0, 1.0)
             pose[wink_right_index] = (1.0 - smile_degree) * clamp(
-                (ifacialmocap_pose["BlinkRight"] + ifacialmocap_pose["Blink"]) / self.args.eye_blink_max_value, 0.0, 1.0)
+                (ifacialmocap_pose["Blink_R"] + ifacialmocap_pose["Blink"]) / self.args.eye_blink_max_value, 0.0, 1.0)
             pose[self.eye_happy_wink_left_index] = smile_degree * clamp(
-                (ifacialmocap_pose["BlinkLeft"] + ifacialmocap_pose["Blink"]) / self.args.eye_blink_max_value, 0.0, 1.0)
+                (ifacialmocap_pose["Blink_L"] + ifacialmocap_pose["Blink"]) / self.args.eye_blink_max_value, 0.0, 1.0)
             pose[self.eye_happy_wink_right_index] = smile_degree * clamp(
-                (ifacialmocap_pose["BlinkRight"] + ifacialmocap_pose["Blink"]) / self.args.eye_blink_max_value, 0.0, 1.0)
+                (ifacialmocap_pose["Blink_R"] + ifacialmocap_pose["Blink"]) / self.args.eye_blink_max_value, 0.0, 1.0)
 
             # Lower eyelid
             cheek_squint_denom = self.args.cheek_squint_max_value - self.args.cheek_squint_min_value
@@ -733,11 +764,11 @@ class IFacialMocapPoseConverter25(IFacialMocapPoseConverter):
         # Iris rotation
         if True:
             eye_rotation_y = (ifacialmocap_pose[RIGHT_EYE_BONE_Y]
-                              + ifacialmocap_pose[LEFT_EYE_BONE_Y]) / 2.0 * 4.0 * self.args.eye_rotation_factor
+                              + ifacialmocap_pose[LEFT_EYE_BONE_Y]) / 2.0 * self.args.eye_rotation_factor
             pose[self.iris_rotation_y_index] = clamp(eye_rotation_y, -1.0, 1.0)
 
             eye_rotation_x = (ifacialmocap_pose[RIGHT_EYE_BONE_X]
-                              + ifacialmocap_pose[LEFT_EYE_BONE_X]) / 2.0 * 4.0 * self.args.eye_rotation_factor
+                              + ifacialmocap_pose[LEFT_EYE_BONE_X]) / 2.0 * self.args.eye_rotation_factor
             pose[self.iris_rotation_x_index] = clamp(eye_rotation_x, -1.0, 1.0)
 
         # Iris size
@@ -758,9 +789,9 @@ class IFacialMocapPoseConverter25(IFacialMocapPoseConverter):
             # pose[self.neck_z_index] = z_param
             # pose[self.body_z_index] = z_param
 
-            ifadd.POS_HEAD_X = ifacialmocap_pose[HEAD_BONE_X] * 180.0 / math.pi * 4.0
-            ifadd.POS_HEAD_Y = ifacialmocap_pose[HEAD_BONE_Y] * 180.0 / math.pi * 4.0
-            ifadd.POS_HEAD_Z = ifacialmocap_pose[HEAD_BONE_Z] * 180.0 / math.pi * 4.0
+            ifadd.POS_HEAD_X = ifacialmocap_pose[HEAD_BONE_X] * 180.0 / math.pi
+            ifadd.POS_HEAD_Y = ifacialmocap_pose[HEAD_BONE_Y] * 180.0 / math.pi
+            ifadd.POS_HEAD_Z = ifacialmocap_pose[HEAD_BONE_Z] * 180.0 / math.pi
 
             x_param = clamp(-(ifadd.POS_HEAD_X-ifadd.CAL_HEAD_X), -15.0, 15.0) / 15.0
             pose[self.head_x_index] = x_param

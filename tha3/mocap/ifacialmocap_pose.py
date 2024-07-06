@@ -19,9 +19,14 @@ def create_default_ifacialmocap_pose():
     data["U"] = 0.0
     data["E"] = 0.0
     data["O"] = 0.0
-    data["BlinkLeft"] = 0.0
-    data["BlinkRight"] = 0.0
+    data["Blink_L"] = 0.0
+    data["Blink_R"] = 0.0
     data["Blink"] = 0.0
+    data["LookUp"] = 0.0
+    data["LookDown"] = 0.0
+    data["LookLeft"] = 0.0
+    data["LookRight"] = 0.0
+    data["NEUTRAL"] = 0.0
 
     data[HEAD_BONE_X] = 0.0
     data[HEAD_BONE_Y] = 0.0
