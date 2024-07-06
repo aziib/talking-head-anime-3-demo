@@ -36,7 +36,7 @@ One way to do so is to install [Anaconda](https://www.anaconda.com/) and run the
 ```
 > conda create -n talking-head-anime-3-demo python=3.8
 > conda activate talking-head-anime-3-demo
-> conda install pytorch torchvision torchaudio pytorch-cuda=12.1 -c pytorch -c nvidia
+> pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
 > conda install scipy
 > pip install wxpython
 > conda install matplotlib
