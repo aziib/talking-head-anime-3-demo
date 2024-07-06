@@ -31,7 +31,7 @@ Both ``manual_poser`` and ``ifacialmocap_puppeteer`` are available as desktop ap
 * wxPython >= 4.1.1
 * Matplotlib >= 3.5.1
 
-One way to do so is to install [Anaconda](https://www.anaconda.com/) and run the following commands in your shell:
+One way to do so is to install [miniconda](https://repo.anaconda.com/miniconda/) and run the following commands in your shell:
 
 ```
 > conda create -n talking-head-anime-3-demo python=3.8
