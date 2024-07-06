@@ -36,7 +36,7 @@ One way to do so is to install [miniconda](https://repo.anaconda.com/miniconda/)
 ```
 > conda create -n talking-head-anime-3-demo python=3.8
 > conda activate talking-head-anime-3-demo
-> pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+> conda install pytorch torchvision torchaudio pytorch-cuda=11.8 -c pytorch -c nvidia
 > conda install scipy
 > pip install wxpython
 > conda install matplotlib
