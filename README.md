@@ -40,6 +40,7 @@ One way to do so is to install [miniconda](https://repo.anaconda.com/miniconda/)
 > conda install scipy
 > pip install wxpython
 > pip install flask-cors
+> pip install imageio
 > conda install matplotlib
 ```
 
