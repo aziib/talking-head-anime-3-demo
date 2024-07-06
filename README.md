@@ -26,7 +26,7 @@ Please update your GPU's device driver and install the [CUDA Toolkit](https://de
 Both ``manual_poser`` and ``ifacialmocap_puppeteer`` are available as desktop applications. To run them, you need to set up an environment for running programs written in the [Python](http://www.python.org) language. The environment needs to have the following software packages:
 
 * Python >= 3.8
-* PyTorch >= 1.11.0 with CUDA support
+* PyTorch >= 2.3.1 with CUDA support
 * SciPY >= 1.7.3
 * wxPython >= 4.1.1
 * Matplotlib >= 3.5.1
@@ -36,7 +36,7 @@ One way to do so is to install [Anaconda](https://www.anaconda.com/) and run the
 ```
 > conda create -n talking-head-anime-3-demo python=3.8
 > conda activate talking-head-anime-3-demo
-> conda install pytorch torchvision torchaudio cudatoolkit=11.3 -c pytorch
+> conda install pytorch torchvision torchaudio pytorch-cuda=12.1 -c pytorch -c nvidia
 > conda install scipy
 > pip install wxpython
 > conda install matplotlib
