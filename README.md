@@ -179,7 +179,7 @@ First, run iFacialMocap on your iOS device. It should show you the device's IP a
 Open a shell. Activate the Python environment. Change your working directory to the repository's root directory. Then, run:
 
 ```
-> python tha3/app/ifacialmocap_puppeteer.py
+> python tha3/app/ifacialmocap_puppeteer.py --model separable_half --timer 20 --port 49983
 ```
 
 You will see a text box with label "Capture Device IP." Write the iOS device's IP address that you jotted down there.
