@@ -39,10 +39,10 @@ class MorphCategoryControlPanel(wx.Panel):
         self.choice.Bind(wx.EVT_CHOICE, self.on_choice_updated)
         self.sizer.Add(self.choice, 0, wx.EXPAND)
 
-        self.left_slider = wx.Slider(self, minValue=-1000, maxValue=1000, value=-1000, style=wx.HORIZONTAL)
+        self.left_slider = wx.Slider(self, minValue=-1000, maxValue=1000, value=-1000, style=wx.HORIZONTAL | wx.SL_LABELS)
         self.sizer.Add(self.left_slider, 0, wx.EXPAND)
 
-        self.right_slider = wx.Slider(self, minValue=-1000, maxValue=1000, value=-1000, style=wx.HORIZONTAL)
+        self.right_slider = wx.Slider(self, minValue=-1000, maxValue=1000, value=-1000, style=wx.HORIZONTAL | wx.SL_LABELS)
         self.sizer.Add(self.right_slider, 0, wx.EXPAND)
 
         self.checkbox = wx.CheckBox(self, label="Show")
@@ -116,7 +116,7 @@ class SimpleParamGroupsControlPanel(wx.Panel):
             range = param_group.get_range()
             min_value = int(range[0] * 1000)
             max_value = int(range[1] * 1000)
-            slider = wx.Slider(self, minValue=min_value, maxValue=max_value, value=0, style=wx.HORIZONTAL)
+            slider = wx.Slider(self, minValue=min_value, maxValue=max_value, value=0, style=wx.HORIZONTAL | wx.SL_LABELS)
             self.sizer.Add(slider, 0, wx.EXPAND)
             self.sliders.append(slider)
 
@@ -165,6 +165,10 @@ class MainFrame(wx.Frame):
         self.wx_source_image = None
         self.torch_source_image = None
 
+        self.torch_source_image_divided = [None] * 4
+        self.image_size_large = 1024
+        self.algorithm_mode = 0
+
         self.main_sizer = wx.BoxSizer(wx.HORIZONTAL)
         self.SetSizer(self.main_sizer)
         self.SetAutoLayout(1)
@@ -189,11 +193,12 @@ class MainFrame(wx.Frame):
 
         self.wx_source_image = None
         self.torch_source_image = None
-        self.source_image_bitmap = wx.Bitmap(self.image_size, self.image_size)
-        self.result_image_bitmap = wx.Bitmap(self.image_size, self.image_size)
-        self.source_image_dirty = True
 
-        self.image_save_counter = 0  # Initialize a counter for saved images
+        self.torch_source_image_divided = [None] * 4
+
+        self.source_image_bitmap = wx.Bitmap(self.image_size, self.image_size)
+        self.result_image_bitmap = wx.Bitmap(self.image_size_large, self.image_size_large)
+        self.source_image_dirty = True
 
     def init_left_panel(self):
         self.control_panel = wx.Panel(self, style=wx.SIMPLE_BORDER, size=(self.image_size, -1))
@@ -201,6 +206,8 @@ class MainFrame(wx.Frame):
         left_panel_sizer = wx.BoxSizer(wx.VERTICAL)
         self.left_panel.SetSizer(left_panel_sizer)
         self.left_panel.SetAutoLayout(1)
+
+        self.create_algorithm_panel(self.left_panel)
 
         self.source_image_panel = wx.Panel(self.left_panel, size=(self.image_size, self.image_size),
                                            style=wx.SIMPLE_BORDER)
@@ -212,8 +219,55 @@ class MainFrame(wx.Frame):
         left_panel_sizer.Add(self.load_image_button, 1, wx.EXPAND)
         self.load_image_button.Bind(wx.EVT_BUTTON, self.load_image)
 
+        separator0 = wx.StaticLine(self.left_panel, -1, size=(256, 4))
+        left_panel_sizer.Add(separator0, flag = wx.GROW | wx.TOP, border = 60)
+
+        self.output_index_choice = wx.Choice(
+            self.left_panel,
+            choices=[str(i) for i in range(self.poser.get_output_length())])
+        self.output_index_choice.SetSelection(0)
+        left_panel_sizer.Add(self.output_index_choice, 0, wx.EXPAND)
+
+        separator1 = wx.StaticLine(self.left_panel, -1, size=(256, 4))
+        left_panel_sizer.Add(separator1, flag = wx.GROW | wx.TOP, border = 28)
+
+        self.save_image_button = wx.Button(self.left_panel, wx.ID_ANY, "\nSave Image\n\n")
+        left_panel_sizer.Add(self.save_image_button, 1, wx.EXPAND)
+        self.save_image_button.Bind(wx.EVT_BUTTON, self.on_save_image)
+
         left_panel_sizer.Fit(self.left_panel)
         self.main_sizer.Add(self.left_panel, 0, wx.FIXED_MINSIZE)
+
+    def create_algorithm_panel(self, parent):
+        self.algorithm_panel = wx.Panel(parent, style=wx.RAISED_BORDER)
+        self.algorithm_panel_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        self.algorithm_panel.SetSizer(self.algorithm_panel_sizer)
+        self.algorithm_panel.SetAutoLayout(1)
+        parent.GetSizer().Add(self.algorithm_panel, 0, wx.EXPAND)
+
+        algorithm_mode_text = wx.StaticText(self.algorithm_panel, label=" Composition Algorithm  ",
+                                               style=wx.ALIGN_CENTER)
+        self.algorithm_panel_sizer.Add(algorithm_mode_text, 0, wx.EXPAND)
+
+        self.algorithm_mode_choice = wx.Choice(
+            self.algorithm_panel,
+            choices=[
+                "0 : Sharp, but Noisy",
+                "1 : Midrange (Sharp)",
+                "2 : Midrange (Soft)",
+                "3 : Soft",
+            ])
+        self.algorithm_mode_choice.SetSelection(0)
+        self.algorithm_panel_sizer.Add(self.algorithm_mode_choice, 1, wx.EXPAND)
+        self.algorithm_mode_choice.Bind(wx.EVT_CHOICE, self.change_composition_algorithm)
+
+        self.algorithm_panel_sizer.Fit(self.algorithm_panel)
+
+    def change_composition_algorithm(self, event: wx.Event):
+        self.algorithm_mode = self.algorithm_mode_choice.GetSelection()
+        self.create_divided_images()
+        self.source_image_dirty = True
+        pass
 
     def on_erase_background(self, event: wx.Event):
         pass
@@ -278,24 +332,12 @@ class MainFrame(wx.Frame):
         self.right_panel.SetAutoLayout(1)
 
         self.result_image_panel = wx.Panel(self.right_panel,
-                                           size=(self.image_size, self.image_size),
+                                           size=(self.image_size_large, self.image_size_large),
                                            style=wx.SIMPLE_BORDER)
         self.result_image_panel.Bind(wx.EVT_PAINT, self.paint_result_image_panel)
         self.result_image_panel.Bind(wx.EVT_ERASE_BACKGROUND, self.on_erase_background)
-        self.output_index_choice = wx.Choice(
-            self.right_panel,
-            choices=[str(i) for i in range(self.poser.get_output_length())])
-        self.output_index_choice.SetSelection(0)
+
         right_panel_sizer.Add(self.result_image_panel, 0, wx.FIXED_MINSIZE)
-        right_panel_sizer.Add(self.output_index_choice, 0, wx.EXPAND)
-
-        self.save_image_button = wx.Button(self.right_panel, wx.ID_ANY, "\nSave Image\n\n")
-        right_panel_sizer.Add(self.save_image_button, 1, wx.EXPAND)
-        self.save_image_button.Bind(wx.EVT_BUTTON, self.on_save_image)
-
-        self.quick_save_image_button = wx.Button(self.right_panel, wx.ID_ANY, "\nQuick Save Image\n\n")
-        right_panel_sizer.Add(self.quick_save_image_button, 1, wx.EXPAND)
-        self.quick_save_image_button.Bind(wx.EVT_BUTTON, self.on_quick_save_image)
 
         right_panel_sizer.Fit(self.right_panel)
         self.main_sizer.Add(self.right_panel, 0, wx.FIXED_MINSIZE)
@@ -315,25 +357,29 @@ class MainFrame(wx.Frame):
         file_dialog = wx.FileDialog(self, "Choose an image", dir_name, "", "*.png", wx.FD_OPEN)
         if file_dialog.ShowModal() == wx.ID_OK:
             image_file_name = os.path.join(file_dialog.GetDirectory(), file_dialog.GetFilename())
-            try:
-                pil_image = resize_PIL_image(extract_PIL_image_from_filelike(image_file_name),
-                                             (self.poser.get_image_size(), self.poser.get_image_size()))
+            # try:
+            if True:
+                pil_image_tmp = extract_PIL_image_from_filelike(image_file_name)
+                pil_image_large = resize_PIL_image(pil_image_tmp, (self.image_size_large, self.image_size_large))
+                pil_image = resize_PIL_image(pil_image_tmp, (self.poser.get_image_size(), self.poser.get_image_size()))
                 w, h = pil_image.size
                 if pil_image.mode != 'RGBA':
                     self.source_image_string = "Image must have alpha channel!"
                     self.wx_source_image = None
                     self.torch_source_image = None
+                    self.torch_source_image_divided = [None] * 4
                 else:
                     self.wx_source_image = wx.Bitmap.FromBufferRGBA(w, h, pil_image.convert("RGBA").tobytes())
-                    self.torch_source_image = extract_pytorch_image_from_PIL_image(pil_image)\
+                    self.torch_source_image = extract_pytorch_image_from_PIL_image(pil_image_large)\
                         .to(self.device).to(self.dtype)
+                    self.create_divided_images()
                 self.source_image_dirty = True
                 self.Refresh()
                 self.Update()
-            except:
-                message_dialog = wx.MessageDialog(self, "Could not load image " + image_file_name, "Poser", wx.OK)
-                message_dialog.ShowModal()
-                message_dialog.Destroy()
+            # except:
+            #     message_dialog = wx.MessageDialog(self, "Could not load image " + image_file_name, "Poser", wx.OK)
+            #     message_dialog.ShowModal()
+            #     message_dialog.Destroy()
         file_dialog.Destroy()
 
     def paint_source_image_panel(self, event: wx.Event):
@@ -388,9 +434,61 @@ class MainFrame(wx.Frame):
             self.source_image_dirty = False
 
         pose = torch.tensor(current_pose, device=self.device, dtype=self.dtype)
-        output_index = self.output_index_choice.GetSelection()
+        # output_index = self.output_index_choice.GetSelection()
+        output_index = self.last_output_index
+        last_torch_image = [None] * 4
         with torch.no_grad():
-            output_image = self.poser.pose(self.torch_source_image, pose, output_index)[0].detach().cpu()
+            last_torch_image[0] = self.poser.pose(self.torch_source_image_divided[0], pose, output_index)[0].detach().cpu()
+            last_torch_image[1] = self.poser.pose(self.torch_source_image_divided[1], pose, output_index)[0].detach().cpu()
+            last_torch_image[2] = self.poser.pose(self.torch_source_image_divided[2], pose, output_index)[0].detach().cpu()
+            last_torch_image[3] = self.poser.pose(self.torch_source_image_divided[3], pose, output_index)[0].detach().cpu()
+
+        # output_image = torch.zeros(4, 1024, 1024).float().to(device)
+        torch_shape_0 = last_torch_image[0].shape[0]
+        torch_shape_1 = last_torch_image[0].shape[1]
+        torch_shape_2 = last_torch_image[0].shape[2]
+        output_image = torch.zeros(torch_shape_0, torch_shape_1 * 2, torch_shape_2 * 2).float().detach().cpu()
+        algo = self.algorithm_mode
+        if algo == 0:
+            output_image[:, ::2, ::2]   = last_torch_image[0]
+            output_image[:, 1::2, ::2]  = last_torch_image[1]
+            output_image[:, ::2, 1::2]  = last_torch_image[2]
+            output_image[:, 1::2, 1::2] = last_torch_image[3]
+            pass
+        elif algo == 1:
+            output_image[:, ::2, ::2]   = last_torch_image[0]
+            output_image[:, 1::2, ::2]  = last_torch_image[1]
+            output_image[:, ::2, 1::2]  = last_torch_image[2]
+            output_image[:, 1::2, 1::2] = last_torch_image[3]
+            pass
+        elif algo == 2:
+            output_image[:, ::2, ::2]   = last_torch_image[0]
+            output_image[:, 1::2, ::2]  = last_torch_image[1]
+            output_image[:, ::2, 1::2]  = last_torch_image[2]
+            output_image[:, 1::2, 1::2] = last_torch_image[3]
+            pass
+        else:
+            output_image[:, ::2, ::2]   = last_torch_image[0]
+            output_image[:, 1::2, ::2]  = last_torch_image[0]
+            output_image[:, ::2, 1::2]  = last_torch_image[0]
+            output_image[:, 1::2, 1::2] = last_torch_image[0]
+            output_image[:, 1::2, ::2]  = output_image[:, 1::2, ::2]  + last_torch_image[1]
+            output_image[:, 2::2, ::2]  = output_image[:, 2::2, ::2]  + last_torch_image[1][:, 0:torch_shape_1-1, :]
+            output_image[:, 1::2, 1::2] = output_image[:, 1::2, 1::2] + last_torch_image[1]
+            output_image[:, 2::2, 1::2] = output_image[:, 2::2, 1::2] + last_torch_image[1][:, 0:torch_shape_1-1, :]
+            output_image[:, ::2, 1::2]  = output_image[:, ::2, 1::2]  + last_torch_image[2]
+            output_image[:, 1::2, 1::2] = output_image[:, 1::2, 1::2] + last_torch_image[2]
+            output_image[:, ::2, 2::2]  = output_image[:, ::2, 2::2]  + last_torch_image[2][:, :, 0:torch_shape_2-1]
+            output_image[:, 1::2, 2::2] = output_image[:, 1::2, 2::2] + last_torch_image[2][:, :, 0:torch_shape_2-1]
+            output_image[:, 1::2, 1::2] = output_image[:, 1::2, 1::2] + last_torch_image[3]
+            output_image[:, 2::2, 1::2] = output_image[:, 2::2, 1::2] + last_torch_image[3][:, 0:torch_shape_1-1, :]
+            output_image[:, 1::2, 2::2] = output_image[:, 1::2, 2::2] + last_torch_image[3][:, :, 0:torch_shape_2-1]
+            output_image[:, 2::2, 2::2] = output_image[:, 2::2, 2::2] + last_torch_image[3][:, 0:torch_shape_1-1, 0:torch_shape_2-1]
+            output_image[:, :, 0:1]     = output_image[:, :, 0:1] * 2.0
+            output_image[:, 0:1, :]     = output_image[:, 0:1, :] * 2.0
+            output_image = output_image / 4.0
+            pass
+
 
         numpy_image = convert_output_image_from_torch_to_numpy(output_image)
         self.last_output_numpy_image = numpy_image
@@ -405,23 +503,13 @@ class MainFrame(wx.Frame):
         dc.SelectObject(self.result_image_bitmap)
         dc.Clear()
         dc.DrawBitmap(wx_bitmap,
-                      (self.image_size - numpy_image.shape[0]) // 2,
-                      (self.image_size - numpy_image.shape[1]) // 2,
+                      (self.image_size_large - numpy_image.shape[0]) // 2,
+                      (self.image_size_large - numpy_image.shape[1]) // 2,
                       True)
         del dc
 
         self.Refresh()
         self.Update()
-
-    def on_quick_save_image(self, event: wx.Event):
-        if self.last_output_numpy_image is None:
-            logging.info("There is no output image to quick save!!!")
-            return
-
-        image_file_name = f"output/image_{self.image_save_counter:04d}.png"
-        self.save_last_numpy_image(image_file_name)
-        self.image_save_counter += 1  # Increment the counter after saving
-        print(f"Image saved quickly as: {image_file_name}")
 
     def on_save_image(self, event: wx.Event):
         if self.last_output_numpy_image is None:
@@ -453,6 +541,84 @@ class MainFrame(wx.Frame):
         pil_image = PIL.Image.fromarray(numpy_image, mode='RGBA')
         os.makedirs(os.path.dirname(image_file_name), exist_ok=True)
         pil_image.save(image_file_name)
+
+    def create_divided_images(self):
+        if self.torch_source_image is None:
+            return
+
+        algo = self.algorithm_mode
+        # torch_image_temp_1 = self.torch_source_image[:, ::2, ::2]
+        # torch_image_temp_2 = self.torch_source_image[:, 1::2, ::2]
+        # torch_image_temp_3 = self.torch_source_image[:, ::2, 1::2]
+        # torch_image_temp_4 = self.torch_source_image[:, 1::2, 1::2]
+        torch_source_sets = [None] * 4
+        torch_source_sets[0] = self.torch_source_image[:, ::2, ::2]
+        torch_source_sets[1] = self.torch_source_image[:, 1::2, ::2]
+        torch_source_sets[2] = self.torch_source_image[:, ::2, 1::2]
+        torch_source_sets[3] = self.torch_source_image[:, 1::2, 1::2]
+        if algo == 0:
+            self.torch_source_image_divided[0] = torch_source_sets[0].to(self.device).to(self.poser.get_dtype())
+            self.torch_source_image_divided[1] = torch_source_sets[1].to(self.device).to(self.poser.get_dtype())
+            self.torch_source_image_divided[2] = torch_source_sets[2].to(self.device).to(self.poser.get_dtype())
+            self.torch_source_image_divided[3] = torch_source_sets[3].to(self.device).to(self.poser.get_dtype())
+            pass
+        elif algo == 1:
+            self.torch_source_image_divided[0] = torch_source_sets[0] * 5.0 + torch_source_sets[1] + torch_source_sets[2] + torch_source_sets[3]
+            self.torch_source_image_divided[1] = torch_source_sets[0] + torch_source_sets[1] * 5.0 + torch_source_sets[2] + torch_source_sets[3]
+            self.torch_source_image_divided[2] = torch_source_sets[0] + torch_source_sets[1] + torch_source_sets[2] * 5.0 + torch_source_sets[3]
+            self.torch_source_image_divided[3] = torch_source_sets[0] + torch_source_sets[1] + torch_source_sets[2] + torch_source_sets[3] * 5.0
+            self.torch_source_image_divided[0] = self.torch_source_image_divided[0] / 8.0
+            self.torch_source_image_divided[1] = self.torch_source_image_divided[1] / 8.0
+            self.torch_source_image_divided[2] = self.torch_source_image_divided[2] / 8.0
+            self.torch_source_image_divided[3] = self.torch_source_image_divided[3] / 8.0
+            self.torch_source_image_divided[0] = self.torch_source_image_divided[0].to(self.device).to(self.poser.get_dtype())
+            self.torch_source_image_divided[1] = self.torch_source_image_divided[1].to(self.device).to(self.poser.get_dtype())
+            self.torch_source_image_divided[2] = self.torch_source_image_divided[2].to(self.device).to(self.poser.get_dtype())
+            self.torch_source_image_divided[3] = self.torch_source_image_divided[3].to(self.device).to(self.poser.get_dtype())
+            pass
+        elif algo == 2:
+            torch_source_temp = torch.zeros(4, 1026, 1026).float()
+            torch_source_temp[:, 1:1025, 1:1025] = self.torch_source_image
+            torch_source_temp[:, 0:1, 1:1025] = self.torch_source_image[:, 0:1, :]
+            torch_source_temp[:, 1:1025, 0:1] = self.torch_source_image[:, :, 0:1]
+            torch_source_temp[:, 1025:1026, 1:1025] = self.torch_source_image[:, 1023:1024, :]
+            torch_source_temp[:, 1:1025, 1025:1026] = self.torch_source_image[:, :, 1023:1024]
+            torch_source_temp[:, 0:1, 0:1] = self.torch_source_image[:, 0:1, 0:1]
+            torch_source_temp[:, 1025:1026, 0:1] = self.torch_source_image[:, 1023:1024, 0:1]
+            torch_source_temp[:, 0:1, 1025:1026] = self.torch_source_image[:, 0:1, 1023:1024]
+            torch_source_temp[:, 1025:1026, 1025:1026] = self.torch_source_image[:, 1023:1024, 1023:1024]
+
+            self.torch_source_image_divided[0] =   torch_source_temp[:, 0:1023:2, 0:1023:2]       + torch_source_temp[:, 1:1024:2, 0:1023:2] * 2.0 + torch_source_temp[:, 2:1025:2, 0:1023:2] \
+                                                 + torch_source_temp[:, 0:1023:2, 1:1024:2] * 2.0 + torch_source_temp[:, 1:1024:2, 1:1024:2] * 4.0 + torch_source_temp[:, 2:1025:2, 1:1024:2] * 2.0 \
+                                                 + torch_source_temp[:, 0:1023:2, 2:1025:2]       + torch_source_temp[:, 1:1024:2, 2:1025:2] * 2.0 + torch_source_temp[:, 2:1025:2, 2:1025:2]
+            self.torch_source_image_divided[1] =   torch_source_temp[:, 1:1024:2, 0:1023:2]       + torch_source_temp[:, 2:1025:2, 0:1023:2] * 2.0 + torch_source_temp[:, 3:1026:2, 0:1023:2] \
+                                                 + torch_source_temp[:, 1:1024:2, 1:1024:2] * 2.0 + torch_source_temp[:, 2:1025:2, 1:1024:2] * 4.0 + torch_source_temp[:, 3:1026:2, 1:1024:2] * 2.0 \
+                                                 + torch_source_temp[:, 1:1024:2, 2:1025:2]       + torch_source_temp[:, 2:1025:2, 2:1025:2] * 2.0 + torch_source_temp[:, 3:1026:2, 2:1025:2]
+            self.torch_source_image_divided[2] =   torch_source_temp[:, 0:1023:2, 1:1024:2]       + torch_source_temp[:, 1:1024:2, 1:1024:2] * 2.0 + torch_source_temp[:, 2:1025:2, 1:1024:2] \
+                                                 + torch_source_temp[:, 0:1023:2, 2:1025:2] * 2.0 + torch_source_temp[:, 1:1024:2, 2:1025:2] * 4.0 + torch_source_temp[:, 2:1025:2, 2:1025:2] * 2.0 \
+                                                 + torch_source_temp[:, 0:1023:2, 3:1026:2]       + torch_source_temp[:, 1:1024:2, 3:1026:2] * 2.0 + torch_source_temp[:, 2:1025:2, 3:1026:2]
+            self.torch_source_image_divided[3] =   torch_source_temp[:, 1:1024:2, 1:1024:2]       + torch_source_temp[:, 2:1025:2, 1:1024:2] * 2.0 + torch_source_temp[:, 3:1026:2, 1:1024:2] \
+                                                 + torch_source_temp[:, 1:1024:2, 2:1025:2] * 2.0 + torch_source_temp[:, 2:1025:2, 2:1025:2] * 4.0 + torch_source_temp[:, 3:1026:2, 2:1025:2] * 2.0 \
+                                                 + torch_source_temp[:, 1:1024:2, 3:1026:2]       + torch_source_temp[:, 2:1025:2, 3:1026:2] * 2.0 + torch_source_temp[:, 3:1026:2, 3:1026:2]
+            self.torch_source_image_divided[0] = self.torch_source_image_divided[0] / 16.0
+            self.torch_source_image_divided[1] = self.torch_source_image_divided[1] / 16.0
+            self.torch_source_image_divided[2] = self.torch_source_image_divided[2] / 16.0
+            self.torch_source_image_divided[3] = self.torch_source_image_divided[3] / 16.0
+            self.torch_source_image_divided[0] = self.torch_source_image_divided[0].to(self.device).to(self.poser.get_dtype())
+            self.torch_source_image_divided[1] = self.torch_source_image_divided[1].to(self.device).to(self.poser.get_dtype())
+            self.torch_source_image_divided[2] = self.torch_source_image_divided[2].to(self.device).to(self.poser.get_dtype())
+            self.torch_source_image_divided[3] = self.torch_source_image_divided[3].to(self.device).to(self.poser.get_dtype())
+            pass
+        else:
+            self.torch_source_image_divided[0] = torch_source_sets[0].to(self.device).to(self.poser.get_dtype())
+            self.torch_source_image_divided[1] = torch_source_sets[1].to(self.device).to(self.poser.get_dtype())
+            self.torch_source_image_divided[2] = torch_source_sets[2].to(self.device).to(self.poser.get_dtype())
+            self.torch_source_image_divided[3] = torch_source_sets[3].to(self.device).to(self.poser.get_dtype())
+            pass
+        # self.last_pose = None
+
+        return
+
 
 
 if __name__ == "__main__":

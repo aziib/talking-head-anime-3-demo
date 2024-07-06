@@ -4,24 +4,14 @@ import socket
 import sys
 import threading
 import time
-import imageio.v2 as imageio
-import numpy as np
-import http.server
-import socketserver
 from typing import Optional
-from PIL import Image
-from flask import Flask, send_file
-from flask import Flask, Response
-from flask_cors import CORS
-import io
-import asyncio
-import websockets
 
 sys.path.append(os.getcwd())
 
 from tha3.mocap.ifacialmocap_pose import create_default_ifacialmocap_pose
 from tha3.mocap.ifacialmocap_v2 import IFACIALMOCAP_PORT, IFACIALMOCAP_START_STRING, parse_ifacialmocap_v2_pose, \
     parse_ifacialmocap_v1_pose, parse_meowface_pose, parse_vmc_pose, parse_vts_pose, parse_vmc_pose_list, parse_vmc_perfectsync_pose_list
+
 from tha3.poser.modes.load_poser import load_poser
 
 from tha3.mocap.ifacialmocap_poser_converter_25 import SmartPhoneApp
@@ -75,33 +65,25 @@ class MainFrame(wx.Frame):
         self.poser = poser
         self.device = device
 
-        self.is_recording = False
-        self.temp_folder = "temp"
-        self.output_folder = "output"
-        self.stream_folder = "stream"
-        self.record_timer = None
-        self.stream_timer = None
-        self.record_counter = 0
-        self.stream_counter = 0
-        self.flask_thread = None
-        self.image_save_counter = 0
-        self.last_output_numpy_image = None 
-
-
         self.mocap_port = mocap_port
 
+        self.image_size = 1024
+
         self.ifacialmocap_pose = create_default_ifacialmocap_pose()
-        self.source_image_bitmap = wx.Bitmap(self.poser.get_image_size(), self.poser.get_image_size())
-        self.result_image_bitmap = wx.Bitmap(self.poser.get_image_size(), self.poser.get_image_size())
+        self.source_image_bitmap = wx.Bitmap(self.image_size, self.image_size)
+        self.result_image_bitmap = wx.Bitmap(self.image_size, self.image_size)
         self.wx_source_image = None
-        self.torch_source_image = None
+        # self.torch_source_image = None
         self.last_pose = None
         self.fps_statistics = FpsStatistics()
         self.last_update_time = None
         self.same_pose_count = 0
+        self.algorithm_mode = 0
+        self.torch_source_sets = None
 
+        self.torch_source_image = [None] * 4
         # self.last_torch_image = torch.zeros(4, 512, 512).float()
-        self.last_torch_image = None
+        self.last_torch_image = [None] * 4
         self.source_image_string = None
 
         self.last_show_index = -1
@@ -151,6 +133,7 @@ class MainFrame(wx.Frame):
 
         save_config = config_json_dict.get("save_config", None)
         if save_config == True:
+            composition_algo = config_json_dict.get("composition_algo", 0)
             capture_ip = config_json_dict.get("capture_ip", "192.168.0.1")
             mocap_method = config_json_dict.get("mocap_method", 2)
             eyebrow_mode = config_json_dict.get("eyebrow_mode", 0)
@@ -166,9 +149,12 @@ class MainFrame(wx.Frame):
             body_z = config_json_dict.get("body_z", 0.0)
             backgroud = config_json_dict.get("backgroud", 0)
 
-            image_list = config_json_dict.get("image_list_512", [])
-            image_select = config_json_dict.get("image_select_512", -1)
-            image_output = config_json_dict.get("image_output_512", -1)
+            image_list = config_json_dict.get("image_list_1024", [])
+            image_select = config_json_dict.get("image_select_1024", -1)
+            image_output = config_json_dict.get("image_output_1024", -1)
+
+            self.algorithm_mode_choice.SetSelection(composition_algo)
+            self.algorithm_mode = composition_algo
 
             self.capture_device_ip_text_ctrl.SetValue(capture_ip)
 
@@ -213,20 +199,29 @@ class MainFrame(wx.Frame):
                         image_name = os.path.basename(image_file_name)
                         pil_image = resize_PIL_image(
                             extract_PIL_image_from_filelike(image_file_name),
-                            (self.poser.get_image_size(), self.poser.get_image_size()))
+                            (self.image_size, self.image_size))
                         w, h = pil_image.size
                         if pil_image.mode != 'RGBA':
                             raise Exception("Image must have alpha channel!")
                         else:
                             wx_image = wx.Bitmap.FromBufferRGBA(w, h, pil_image.convert("RGBA").tobytes())
-                            torch_image = extract_pytorch_image_from_PIL_image(pil_image)
+                            torch_image_temp = extract_pytorch_image_from_PIL_image(pil_image)
                     except Exception as e:
                         print(e)
                         image_name = image_name + "  (Image Loading Error!)"
-                        w, h = 512, 512
+                        w, h = self.image_size, self.image_size
                         pil_image = PIL.Image.new("RGBA", (w, h), (0, 0, 0, 0))
                         wx_image = wx.Bitmap.FromBufferRGBA(w, h, pil_image.convert("RGBA").tobytes())
-                        torch_image = extract_pytorch_image_from_PIL_image(pil_image)
+                        torch_image_temp = extract_pytorch_image_from_PIL_image(pil_image)
+                    torch_image_temp_1 = torch_image_temp[:, ::2, ::2]
+                    torch_image_temp_2 = torch_image_temp[:, 1::2, ::2]
+                    torch_image_temp_3 = torch_image_temp[:, ::2, 1::2]
+                    torch_image_temp_4 = torch_image_temp[:, 1::2, 1::2]
+                    torch_image = [None] * 4
+                    torch_image[0] = torch_image_temp_1
+                    torch_image[1] = torch_image_temp_2
+                    torch_image[2] = torch_image_temp_3
+                    torch_image[3] = torch_image_temp_4
                     self.source_image_list.Append(image_name, [pil_image, wx_image, torch_image, image_file_name])
 
                 if image_list_index <= image_select:
@@ -238,7 +233,8 @@ class MainFrame(wx.Frame):
                         image_select = image_output
                     self.last_output_index = image_output
                     image_sets = self.source_image_list.GetClientData(image_output)
-                    self.torch_source_image = image_sets[2].to(self.device).to(self.poser.get_dtype())
+                    self.torch_source_sets = image_sets[2]
+                    self.create_divided_images()
                     self.last_pose = None
                 if image_select >= 0:
                     self.source_image_list.SetSelection(image_select)
@@ -269,6 +265,7 @@ class MainFrame(wx.Frame):
 
             save_config = config_json_dict.get("save_config", None)
             if save_config == True:
+                composition_algo = self.algorithm_mode
                 capture_ip = self.capture_device_ip_text_ctrl.GetValue()
                 mocap_method = self.pose_converter.sp_app_choice.GetSelection()
                 eyebrow_mode = self.pose_converter.eyebrow_down_mode_choice.GetSelection()
@@ -293,6 +290,7 @@ class MainFrame(wx.Frame):
                 image_select = self.last_show_index
                 image_output = self.last_output_index
 
+                config_json_dict["composition_algo"] = composition_algo
                 config_json_dict["capture_ip"] = capture_ip
                 config_json_dict["mocap_method"] = mocap_method
                 config_json_dict["eyebrow_mode"] = eyebrow_mode
@@ -308,9 +306,9 @@ class MainFrame(wx.Frame):
                 config_json_dict["body_z"] = body_z
                 config_json_dict["backgroud"] = backgroud
 
-                config_json_dict["image_list_512"] = image_list
-                config_json_dict["image_select_512"] = image_select
-                config_json_dict["image_output_512"] = image_output
+                config_json_dict["image_list_1024"] = image_list
+                config_json_dict["image_select_1024"] = image_select
+                config_json_dict["image_output_1024"] = image_output
 
                 with open('tha3sw_config.json', 'w') as f:
                     json.dump(config_json_dict, f, indent=4)
@@ -361,7 +359,7 @@ class MainFrame(wx.Frame):
         capture_device_ip_address = self.vts_ip
         capture_device_port = self.vts_port
         VTS_START_STRING = '{"messageType":"iOSTrackingDataRequest","time":10.0,"sentBy":"THA3SW","ports":['.encode('utf-8') + f'{self.mocap_port}'.encode('utf-8') + ']}'.encode('utf-8')
-
+        # print(VTS_START_STRING)
         try:
             address = (capture_device_ip_address, capture_device_port)
             out_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -492,14 +490,19 @@ class MainFrame(wx.Frame):
         self.animation_panel.SetAutoLayout(1)
 
         image_size = self.poser.get_image_size()
+        # image_size = self.image_size
 
         if True:
-            self.input_panel = wx.Panel(self.animation_panel, size=(image_size, image_size + 142),
+            self.input_panel = wx.Panel(self.animation_panel, size=(image_size, self.image_size + 0),
                                         style=wx.SIMPLE_BORDER)
             self.input_panel_sizer = wx.BoxSizer(wx.VERTICAL)
             self.input_panel.SetSizer(self.input_panel_sizer)
             self.input_panel.SetAutoLayout(1)
             self.animation_panel_sizer.Add(self.input_panel, 0, wx.FIXED_MINSIZE)
+
+            self.create_connection_panel(self.input_panel)
+            self.create_algorithm_panel(self.input_panel)
+            self.create_reset_panel(self.input_panel)
 
             self.source_image_panel = wx.Panel(self.input_panel, size=(image_size, image_size), style=wx.SIMPLE_BORDER)
             self.source_image_panel.Bind(wx.EVT_PAINT, self.paint_source_image_panel)
@@ -507,15 +510,48 @@ class MainFrame(wx.Frame):
             self.input_panel_sizer.Add(self.source_image_panel, 0, wx.FIXED_MINSIZE)
 
  #Listbox for select and switch images
-            self.source_image_list = wx.ListBox(self.input_panel, size=(image_size, 100), style=wx.LB_NEEDED_SB)
+            image_list_text = wx.StaticText(self.input_panel, label="--- List of Image Files ---",
+                                            style=wx.ALIGN_CENTER)
+            self.input_panel_sizer.Add(image_list_text, 0, wx.EXPAND)
+
+            self.source_image_list = wx.ListBox(self.input_panel, size=(image_size, 160), style=wx.LB_NEEDED_SB)
             self.source_image_list.Bind(wx.EVT_LISTBOX, self.source_image_select)
             self.source_image_list.Bind(wx.EVT_LISTBOX_DCLICK, self.source_image_apply)
             self.source_image_list.Bind(wx.EVT_KEY_UP, self.source_image_press_enter)
             self.input_panel_sizer.Add(self.source_image_list, 1, wx.EXPAND)
 
-            self.load_image_button = wx.Button(self.input_panel, wx.ID_ANY, "Load Image")
+            self.load_image_button = wx.Button(self.input_panel, wx.ID_ANY, " \nLoad Image\n ")
             self.input_panel_sizer.Add(self.load_image_button, 0, wx.EXPAND)
             self.load_image_button.Bind(wx.EVT_BUTTON, self.load_image)
+
+            separator0 = wx.StaticLine(self.input_panel, -1, size=(256, 4))
+            self.input_panel_sizer.Add(separator0, flag = wx.GROW | wx.TOP, border = 12)
+
+            background_text = wx.StaticText(self.input_panel, label="--- Background ---",
+                                            style=wx.ALIGN_CENTER)
+            self.input_panel_sizer.Add(background_text, 0, wx.EXPAND)
+
+            self.output_background_choice = wx.Choice(
+                self.input_panel,
+                choices=[
+                    "TRANSPARENT",
+                    "GREEN",
+                    "BLUE",
+                    "BLACK",
+                    "WHITE"
+                ])
+            self.output_background_choice.SetSelection(0)
+            self.output_background_choice.Bind(wx.EVT_CHOICE, self.background_changed)
+            self.input_panel_sizer.Add(self.output_background_choice, 0, wx.EXPAND)
+
+            separator = wx.StaticLine(self.input_panel, -1, size=(256, 5))
+            self.input_panel_sizer.Add(separator, 0, wx.EXPAND)
+
+            self.fps_text = wx.StaticText(self.input_panel, label="")
+            self.input_panel_sizer.Add(self.fps_text, wx.SizerFlags().Border())
+
+            separator_bottom = wx.StaticLine(self.input_panel, -1, size=(256, 4))
+            self.input_panel_sizer.Add(separator_bottom, flag = wx.GROW | wx.BOTTOM, border = 44)
 
             self.input_panel_sizer.Fit(self.input_panel)
 
@@ -529,37 +565,11 @@ class MainFrame(wx.Frame):
             self.animation_left_panel.SetAutoLayout(1)
             self.animation_panel_sizer.Add(self.animation_left_panel, 0, wx.EXPAND)
 
-            self.result_image_panel = wx.Panel(self.animation_left_panel, size=(image_size, image_size),
+            self.result_image_panel = wx.Panel(self.animation_left_panel, size=(self.image_size, self.image_size),
                                                style=wx.SIMPLE_BORDER)
             self.result_image_panel.Bind(wx.EVT_PAINT, self.paint_result_image_panel)
             self.result_image_panel.Bind(wx.EVT_ERASE_BACKGROUND, self.on_erase_background)
             self.animation_left_panel_sizer.Add(self.result_image_panel, 0, wx.FIXED_MINSIZE)
-
-            separator = wx.StaticLine(self.animation_left_panel, -1, size=(256, 5))
-            self.animation_left_panel_sizer.Add(separator, 0, wx.EXPAND)
-
-            background_text = wx.StaticText(self.animation_left_panel, label="--- Background ---",
-                                            style=wx.ALIGN_CENTER)
-            self.animation_left_panel_sizer.Add(background_text, 0, wx.EXPAND)
-
-            self.output_background_choice = wx.Choice(
-                self.animation_left_panel,
-                choices=[
-                    "TRANSPARENT",
-                    "GREEN",
-                    "BLUE",
-                    "BLACK",
-                    "WHITE"
-                ])
-            self.output_background_choice.SetSelection(0)
-            self.output_background_choice.Bind(wx.EVT_CHOICE, self.background_changed)
-            self.animation_left_panel_sizer.Add(self.output_background_choice, 0, wx.EXPAND)
-
-            separator = wx.StaticLine(self.animation_left_panel, -1, size=(256, 5))
-            self.animation_left_panel_sizer.Add(separator, 0, wx.EXPAND)
-
-            self.fps_text = wx.StaticText(self.animation_left_panel, label="")
-            self.animation_left_panel_sizer.Add(self.fps_text, wx.SizerFlags().Border())
 
             self.animation_left_panel_sizer.Fit(self.animation_left_panel)
 
@@ -572,62 +582,79 @@ class MainFrame(wx.Frame):
 
         self.capture_pose_lock = threading.Lock()
 
-        self.create_connection_panel(self)
-        self.main_sizer.Add(self.connection_panel, wx.SizerFlags(0).Expand().Border(wx.ALL, 5))
+#        self.create_connection_panel(self)
+#        self.main_sizer.Add(self.connection_panel, wx.SizerFlags(0).Expand().Border(wx.ALL, 5))
 
         self.create_animation_panel(self)
-        self.main_sizer.Add(self.animation_panel, wx.SizerFlags(0).Expand().Border(wx.ALL, 5))
+        self.main_sizer.Add(self.animation_panel, wx.SizerFlags(0).Expand().Border(wx.ALL, 2))
 
 #        self.create_capture_panel(self)
 #        self.main_sizer.Add(self.capture_panel, wx.SizerFlags(0).Expand().Border(wx.ALL, 5))
 
         self.main_sizer.Fit(self)
 
+    def create_algorithm_panel(self, parent):
+        self.algorithm_panel = wx.Panel(parent, style=wx.RAISED_BORDER)
+        self.algorithm_panel_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        self.algorithm_panel.SetSizer(self.algorithm_panel_sizer)
+        self.algorithm_panel.SetAutoLayout(1)
+        parent.GetSizer().Add(self.algorithm_panel, 0, wx.EXPAND)
+
+        algorithm_mode_text = wx.StaticText(self.algorithm_panel, label=" Composition Algorithm  ",
+                                               style=wx.ALIGN_CENTER)
+        self.algorithm_panel_sizer.Add(algorithm_mode_text, 0, wx.EXPAND)
+
+        self.algorithm_mode_choice = wx.Choice(
+            self.algorithm_panel,
+            choices=[
+                "0 : Sharp, but Noisy",
+                "1 : Midrange (Sharp)",
+                "2 : Midrange (Soft)",
+                "3 : Soft",
+            ])
+        self.algorithm_mode_choice.SetSelection(0)
+        self.algorithm_panel_sizer.Add(self.algorithm_mode_choice, 1, wx.EXPAND)
+        self.algorithm_mode_choice.Bind(wx.EVT_CHOICE, self.change_composition_algorithm)
+
+        self.algorithm_panel_sizer.Fit(self.algorithm_panel)
+
+    def create_reset_panel(self, parent):
+        self.reset_panel = wx.Panel(parent, style=wx.RAISED_BORDER)
+        self.reset_panel_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        self.reset_panel.SetSizer(self.reset_panel_sizer)
+        self.reset_panel.SetAutoLayout(1)
+        parent.GetSizer().Add(self.reset_panel, 0, wx.EXPAND)
+
+#        Add reset button
+        self.reset_button = wx.Button(self.reset_panel, label="CLEAR Images")
+        self.reset_panel_sizer.Add(self.reset_button, wx.SizerFlags(0).FixedMinSize().Border(wx.ALL, 3))
+        self.reset_button.Bind(wx.EVT_BUTTON, self.reset_clicked)
+
+        space_text = wx.StaticText(self.reset_panel, label="  ", style=wx.ALIGN_RIGHT)
+        self.reset_panel_sizer.Add(space_text, wx.SizerFlags(0).FixedMinSize().Border(wx.ALL, 3))
+
+        self.reset_ok_button = wx.Button(self.reset_panel, label="  OK  ")
+        self.reset_panel_sizer.Add(self.reset_ok_button, wx.SizerFlags(0).FixedMinSize().Border(wx.ALL, 3))
+        self.reset_ok_button.Bind(wx.EVT_BUTTON, self.reset_ok_clicked)
+
+        self.reset_cancel_button = wx.Button(self.reset_panel, label="CANCEL")
+        self.reset_panel_sizer.Add(self.reset_cancel_button, wx.SizerFlags(0).FixedMinSize().Border(wx.ALL, 3))
+        self.reset_cancel_button.Bind(wx.EVT_BUTTON, self.reset_cancel_clicked)
+
+        reset_spacer_line = wx.StaticLine(self.reset_panel, style = wx.LI_VERTICAL, size = (5, 10))
+        self.reset_panel_sizer.Add(reset_spacer_line, flag = wx.GROW | wx.RIGHT, border = 150)
+
+        self.reset_ok_button.Disable()
+        self.reset_cancel_button.Disable()
+        self.reset_panel_sizer.Fit(self.reset_panel)
+
     def create_connection_panel(self, parent):
         self.connection_panel = wx.Panel(parent, style=wx.RAISED_BORDER)
         self.connection_panel_sizer = wx.BoxSizer(wx.HORIZONTAL)
         self.connection_panel.SetSizer(self.connection_panel_sizer)
         self.connection_panel.SetAutoLayout(1)
+        parent.GetSizer().Add(self.connection_panel, 0, wx.EXPAND)
 
-#        Add reset button
-        self.reset_button = wx.Button(self.connection_panel, label="CLEAR Images")
-        self.connection_panel_sizer.Add(self.reset_button, wx.SizerFlags(0).FixedMinSize().Border(wx.ALL, 3))
-        self.reset_button.Bind(wx.EVT_BUTTON, self.reset_clicked)
-
-        space_text = wx.StaticText(self.connection_panel, label="  ", style=wx.ALIGN_RIGHT)
-        self.connection_panel_sizer.Add(space_text, wx.SizerFlags(0).FixedMinSize().Border(wx.ALL, 3))
-
-        self.reset_ok_button = wx.Button(self.connection_panel, label="  OK  ")
-        self.connection_panel_sizer.Add(self.reset_ok_button, wx.SizerFlags(0).FixedMinSize().Border(wx.ALL, 3))
-        self.reset_ok_button.Bind(wx.EVT_BUTTON, self.reset_ok_clicked)
-
-        self.reset_cancel_button = wx.Button(self.connection_panel, label="CANCEL")
-        self.connection_panel_sizer.Add(self.reset_cancel_button, wx.SizerFlags(0).FixedMinSize().Border(wx.ALL, 3))
-        self.reset_cancel_button.Bind(wx.EVT_BUTTON, self.reset_cancel_clicked)
-
-        reset_spacer_line = wx.StaticLine(self.connection_panel, style = wx.LI_VERTICAL, size = (5, 10))
-        self.connection_panel_sizer.Add(reset_spacer_line, flag = wx.GROW | wx.RIGHT, border = 150)
-
-        self.reset_ok_button.Disable()
-        self.reset_cancel_button.Disable()
-
-        self.snapshot_button = wx.Button(self.connection_panel, label="Snapshot")
-        self.connection_panel_sizer.Add(self.snapshot_button, wx.SizerFlags(0).FixedMinSize().Border(wx.ALL, 3))
-        self.snapshot_button.Bind(wx.EVT_BUTTON, self.on_snapshot)
-
-        self.record_button = wx.Button(self.connection_panel, label="Record")
-        self.connection_panel_sizer.Add(self.record_button, wx.SizerFlags(0).FixedMinSize().Border(wx.ALL, 3))
-        self.record_button.Bind(wx.EVT_BUTTON, self.on_record)
-
-        self.stop_button = wx.Button(self.connection_panel, label="Stop")
-        self.connection_panel_sizer.Add(self.stop_button, wx.SizerFlags(0).FixedMinSize().Border(wx.ALL, 3))
-        self.stop_button.Bind(wx.EVT_BUTTON, self.on_stop)
-
-        self.stream_button = wx.Button(self.connection_panel, label="Stream")
-        self.connection_panel_sizer.Add(self.stream_button, wx.SizerFlags(0).FixedMinSize().Border(wx.ALL, 3))
-        self.stream_button.Bind(wx.EVT_BUTTON, self.stream_image)
-
-        
         capture_device_ip_text = wx.StaticText(self.connection_panel, label="Capture Device IP:", style=wx.ALIGN_RIGHT)
         self.connection_panel_sizer.Add(capture_device_ip_text, wx.SizerFlags(0).FixedMinSize().Border(wx.ALL, 3))
 
@@ -637,148 +664,16 @@ class MainFrame(wx.Frame):
         self.start_capture_button = wx.Button(self.connection_panel, label="START CAPTURE!")
         self.connection_panel_sizer.Add(self.start_capture_button, wx.SizerFlags(0).FixedMinSize().Border(wx.ALL, 3))
         self.start_capture_button.Bind(wx.EVT_BUTTON, self.on_start_capture)
-
+        
         capture_status_text = wx.StaticText(self.connection_panel, label=" Status : ", style=wx.ALIGN_RIGHT)
         self.connection_panel_sizer.Add(capture_status_text, wx.SizerFlags(0).FixedMinSize().Border(wx.ALL, 3))
 
         self.capture_status_indicator = wx.StaticText(self.connection_panel, label=" ● ", style=wx.ALIGN_RIGHT)
         self.connection_panel_sizer.Add(self.capture_status_indicator, wx.SizerFlags(0).FixedMinSize().Border(wx.ALL, 3))
         self.show_status_indicator(False, False)
+
+        self.connection_panel_sizer.Fit(self.connection_panel)
         
-    # Update the on_snapshot function in ifacialmocap_puppeteer.py
-    def on_snapshot(self, event: wx.Event):
-        output_dir = "output"
-        if not os.path.exists(output_dir):
-           os.makedirs(output_dir)
-
-        # Generate new file name
-        new_file_number = len(os.listdir(output_dir))
-        new_file_name = f"{new_file_number}.png"
-        new_file_path = os.path.join(output_dir, new_file_name)
-
-        # Save snapshot with transparency
-        try:
-            image_file_name = f"output/image_{self.image_save_counter:04d}.png"
-            self.save_last_numpy_image(image_file_name)
-            self.image_save_counter += 1  # Increment the counter after saving
-            print(f"Image saved quickly as: {image_file_name}")
-        except IOError:
-            wx.LogError(f"Can't save file '{new_file_path}'.")
-
-    def save_last_numpy_image(self, image_file_name):
-        numpy_image = self.last_output_numpy_image  # Convert PyTorch Tensor to NumPy array
-        pil_image = PIL.Image.fromarray(numpy_image, mode='RGBA')
-        os.makedirs(os.path.dirname(image_file_name), exist_ok=True)
-        pil_image.save(image_file_name)
-
-    def on_record(self, event):
-        self.is_recording = True
-        if not os.path.exists(self.temp_folder):
-            os.makedirs(self.temp_folder)
-        else:
-            # Delete all files in the temp folder
-            for filename in os.listdir(self.temp_folder):
-                file_path = os.path.join(self.temp_folder, filename)
-                try:
-                    if os.path.isfile(file_path) or os.path.islink(file_path):
-                        os.unlink(file_path)
-                    elif os.path.isdir(file_path):
-                        shutil.rmtree(file_path)
-                except Exception as e:
-                    print(f'Failed to delete {file_path}. Reason: {e}')
-        
-        self.record_timer = wx.Timer(self)
-        self.Bind(wx.EVT_TIMER, self.take_snapshot, self.record_timer)
-        frame_interval_ms = 1
-        self.record_timer.Start(frame_interval_ms)  # Start the timer to take a snapshot every ms
-
-    def take_snapshot(self, event):
-        # Take snapshot and save in temp folder
-        image_file_name = os.path.join(self.temp_folder, f"snapshot_{self.record_counter}.png")
-        self.save_last_numpy_image(image_file_name)
-        print(f"Image saved quickly as: {image_file_name}")
-        # Code to take snapshot and save the image
-
-        self.record_counter += 1
-
-    def take_stream(self, event):
-        # Take snapshot and save in temp folder
-        image_file_name = os.path.join(self.stream_folder, f"stream.png")
-        self.save_last_numpy_image(image_file_name)
-        # Code to take snapshot and save the image
-
-        self.record_counter += 1
-
-    def on_stop(self, event):
-        self.is_recording = False
-        if self.record_timer:
-            self.record_timer.Stop()
-        print("Recording stopped.") 
-        self.record_counter = 0
-
-        # Combine images into an APNG
-        images = []
-        temp_folder_path = os.path.join(os.getcwd(), self.temp_folder)
-        output_file_path = os.path.join(os.getcwd(), self.output_folder, "recorded_animation.apng")
-
-        # Ensure the output directory exists
-        os.makedirs(os.path.dirname(output_file_path), exist_ok=True)
-
-        # Check if the file already exists and modify the name if it does
-        base_name, extension = os.path.splitext(output_file_path)
-        counter = 1
-        while os.path.isfile(output_file_path):
-            output_file_path = f"{base_name}_{counter}{extension}"
-            counter += 1
-
-        # Load images from the temporary folder
-        for filename in sorted(os.listdir(temp_folder_path), key=lambda x: int(x.split('_')[1].split('.')[0])):
-            file_path = os.path.join(temp_folder_path, filename)
-            images.append(imageio.imread(file_path))
-
-        # Save the images as an APNG
-        imageio.mimsave(output_file_path, images, format='APNG', fps=12)  # Adjust fps to desired frame rate
-
-        print(f"APNG saved to {output_file_path}")
-
-        # Clean up the temporary folder
-        for filename in os.listdir(temp_folder_path):
-            file_path = os.path.join(temp_folder_path, filename)
-            try:
-                if os.path.isfile(file_path) or os.path.islink(file_path):
-                     os.unlink(file_path)
-                elif os.path.isdir(file_path):
-                    shutil.rmtree(file_path)
-            except Exception as e:
-                print(f'Failed to delete {file_path}. Reason: {e}')
-
-    def stream_image(self, event):
-        app = Flask(__name__)
-        CORS(app)  # Enable CORS for all routes
-        OUTPUT_FOLDER = 'D:/DeepFake Vtuber/talking-head-anime-3-demo'
-
-        @app.route('/result_feed')
-        def get_image():
-            def generate():
-                while True:
-                    numpy_image = self.last_output_numpy_image
-                    pil_image = PIL.Image.fromarray(numpy_image, mode='RGBA')
-                    img_byte_array = io.BytesIO()
-                    pil_image.save(img_byte_array, format='PNG')
-                    img_byte_array.seek(0)
-                    yield (b'--frame\r\n'b'Content-Type: image/png\r\n\r\n' + img_byte_array.getvalue() + b'\r\n')
-            
-            return Response(generate(), mimetype='multipart/x-mixed-replace; boundary=frame')
-
-        def start_flask_server():
-            app.run(host='127.0.0.1', port=8192, threaded=True)
-
-        # Start the Flask server in a separate thread
-        self.flask_thread = threading.Thread(target=start_flask_server)
-        self.flask_thread.daemon = True  # Set the thread as a daemon
-        self.flask_thread.start()
-        print("image streamed to http://127.0.0.1:8192/result_feed") 
-    
     def show_status_indicator(self, isReceive :bool = False, status :bool = False):
         if isReceive == True:
             if status == True:
@@ -855,8 +750,11 @@ class MainFrame(wx.Frame):
         if self.wx_source_image is None:
             self.draw_nothing_yet_string(dc)
         else:
+            draw_image = wx.Bitmap.ConvertToImage(self.wx_source_image)
+            draw_image = draw_image.Scale(self.poser.get_image_size(), self.poser.get_image_size(), wx.IMAGE_QUALITY_BOX_AVERAGE)
+            draw_wx_image = wx.Image.ConvertToBitmap(draw_image)
             dc.Clear()
-            dc.DrawBitmap(self.wx_source_image, 0, 0, True)
+            dc.DrawBitmap(draw_wx_image, 0, 0, True)
             if self.source_image_string is None:
                 pass
             else:
@@ -877,14 +775,13 @@ class MainFrame(wx.Frame):
     def paint_result_image_panel(self, event: wx.Event):
         wx.BufferedPaintDC(self.result_image_panel, self.result_image_bitmap)
 
-    def thread_ai_convert(self, pose):
+    def thread_ai_convert(self, pose, area):
         with torch.no_grad():
-            self.last_torch_image = self.poser.pose(self.torch_source_image, pose)[0].float()
+            self.last_torch_image[area] = self.poser.pose(self.torch_source_image[area], pose)[0].float()
 
     def update_result_image_bitmap(self, event: Optional[wx.Event] = None):
         ifacialmocap_pose = self.read_ifacialmocap_pose()
         current_pose = self.pose_converter.convert(ifacialmocap_pose, self.poseIsPerfectsync)
-
         if self.last_pose is not None and self.last_pose == current_pose:
             if self.same_pose_count >= 1:
                 self.same_pose_count = 2
@@ -895,14 +792,13 @@ class MainFrame(wx.Frame):
             self.same_pose_count = 0
         self.last_pose = current_pose
 
-        image_size = self.poser.get_image_size()
-        if self.torch_source_image is None:
+        if self.torch_source_image[0] is None:
             # dc = wx.MemoryDC()
             # dc.SelectObject(self.result_image_bitmap)
             # self.draw_nothing_yet_string(dc)
             # del dc
 
-            background = torch.zeros(4, image_size, image_size)
+            background = torch.zeros(4, self.image_size, self.image_size)
             background_choice = self.output_background_choice.GetSelection()
             if background_choice == 0:
                 pass
@@ -921,7 +817,6 @@ class MainFrame(wx.Frame):
             output_image = 255.0 * torch.transpose(output_image.reshape(c, h * w), 0, 1).reshape(h, w, c)
             output_image = output_image.byte()
             numpy_image = output_image.detach().cpu().numpy()
-            
             # print(numpy_image[0,0])
             wx_image = wx.ImageFromBuffer(numpy_image.shape[0],
                                           numpy_image.shape[1],
@@ -933,24 +828,77 @@ class MainFrame(wx.Frame):
             dc.SelectObject(self.result_image_bitmap)
             dc.Clear()
             dc.DrawBitmap(wx_bitmap,
-                          (image_size - numpy_image.shape[0]) // 2,
-                          (image_size - numpy_image.shape[1]) // 2, True)
+                          (self.image_size - numpy_image.shape[0]) // 2,
+                          (self.image_size - numpy_image.shape[1]) // 2, True)
             del dc
             self.result_image_panel.Refresh()
             return
 
         pose = torch.tensor(current_pose, device=self.device, dtype=self.poser.get_dtype())
 
+        thread0 = threading.Thread(target = self.thread_ai_convert, args = (pose, 0 ))
+        thread1 = threading.Thread(target = self.thread_ai_convert, args = (pose, 1 ))
+        thread2 = threading.Thread(target = self.thread_ai_convert, args = (pose, 2 ))
+        thread3 = threading.Thread(target = self.thread_ai_convert, args = (pose, 3 ))
 
-        thread1 = threading.Thread(target = self.thread_ai_convert, args = (pose, ))
-
-        if self.last_torch_image is None:
+        if self.last_torch_image[3] is None:
+            thread0.start()
             thread1.start()
+            thread2.start()
+            thread3.start()
+
+            thread0.join()
             thread1.join()
+            thread2.join()
+            thread3.join()
             return
 
-        torch_image = self.last_torch_image
+        torch_image  = torch.zeros(4, 1024, 1024).float().to(device)
+        algo = self.algorithm_mode
+        if algo == 0:
+            torch_image[:, ::2, ::2]   = self.last_torch_image[0].to(device)
+            torch_image[:, 1::2, ::2]  = self.last_torch_image[1].to(device)
+            torch_image[:, ::2, 1::2]  = self.last_torch_image[2].to(device)
+            torch_image[:, 1::2, 1::2] = self.last_torch_image[3].to(device)
+            pass
+        elif algo == 1:
+            torch_image[:, ::2, ::2]   = self.last_torch_image[0].to(device)
+            torch_image[:, 1::2, ::2]  = self.last_torch_image[1].to(device)
+            torch_image[:, ::2, 1::2]  = self.last_torch_image[2].to(device)
+            torch_image[:, 1::2, 1::2] = self.last_torch_image[3].to(device)
+            pass
+        elif algo == 2:
+            torch_image[:, ::2, ::2]   = self.last_torch_image[0].to(device)
+            torch_image[:, 1::2, ::2]  = self.last_torch_image[1].to(device)
+            torch_image[:, ::2, 1::2]  = self.last_torch_image[2].to(device)
+            torch_image[:, 1::2, 1::2] = self.last_torch_image[3].to(device)
+            pass
+        else:
+            torch_image[:, ::2, ::2]   = self.last_torch_image[0].to(device)
+            torch_image[:, 1::2, ::2]  = self.last_torch_image[0].to(device)
+            torch_image[:, ::2, 1::2]  = self.last_torch_image[0].to(device)
+            torch_image[:, 1::2, 1::2] = self.last_torch_image[0].to(device)
+            torch_image[:, 1::2, ::2]  = torch_image[:, 1::2, ::2] + self.last_torch_image[1].to(device)
+            torch_image[:, 2::2, ::2]  = torch_image[:, 2::2, ::2] + self.last_torch_image[1][:, 0:511, :].to(device)
+            torch_image[:, 1::2, 1::2] = torch_image[:, 1::2, 1::2] + self.last_torch_image[1].to(device)
+            torch_image[:, 2::2, 1::2] = torch_image[:, 2::2, 1::2] + self.last_torch_image[1][:, 0:511, :].to(device)
+            torch_image[:, ::2, 1::2]  = torch_image[:, ::2, 1::2] + self.last_torch_image[2].to(device)
+            torch_image[:, 1::2, 1::2] = torch_image[:, 1::2, 1::2] + self.last_torch_image[2].to(device)
+            torch_image[:, ::2, 2::2]  = torch_image[:, ::2, 2::2] + self.last_torch_image[2][:, :, 0:511].to(device)
+            torch_image[:, 1::2, 2::2] = torch_image[:, 1::2, 2::2] + self.last_torch_image[2][:, :, 0:511].to(device)
+            torch_image[:, 1::2, 1::2] = torch_image[:, 1::2, 1::2] + self.last_torch_image[3].to(device)
+            torch_image[:, 2::2, 1::2] = torch_image[:, 2::2, 1::2] + self.last_torch_image[3][:, 0:511, :].to(device)
+            torch_image[:, 1::2, 2::2] = torch_image[:, 1::2, 2::2] + self.last_torch_image[3][:, :, 0:511].to(device)
+            torch_image[:, 2::2, 2::2] = torch_image[:, 2::2, 2::2] + self.last_torch_image[3][:, 0:511, 0:511].to(device)
+            torch_image[:, :, 0:1]     = torch_image[:, :, 0:1] * 2.0
+            torch_image[:, 0:1, :]     = torch_image[:, 0:1, :] * 2.0
+            torch_image = torch_image / 4.0
+            pass
+
+        thread0.start()
         thread1.start()
+        thread2.start()
+        thread3.start()
 
         with torch.no_grad():
             output_image = convert_linear_to_srgb((torch_image + 1.0) / 2.0)
@@ -977,9 +925,7 @@ class MainFrame(wx.Frame):
             output_image = 255.0 * torch.transpose(output_image.reshape(c, h * w), 0, 1).reshape(h, w, c)
             output_image = output_image.byte()
 
-        numpy_image = output_image.detach().cpu().numpy
         numpy_image = output_image.detach().cpu().numpy()
-        self.last_output_numpy_image = numpy_image
         wx_image = wx.ImageFromBuffer(numpy_image.shape[0],
                                       numpy_image.shape[1],
                                       numpy_image[:, :, 0:3].tobytes(),
@@ -990,28 +936,110 @@ class MainFrame(wx.Frame):
         dc.SelectObject(self.result_image_bitmap)
         dc.Clear()
         dc.DrawBitmap(wx_bitmap,
-                      (image_size - numpy_image.shape[0]) // 2,
-                      (image_size - numpy_image.shape[1]) // 2, True)
+                      (self.image_size - numpy_image.shape[0]) // 2,
+                      (self.image_size - numpy_image.shape[1]) // 2, True)
         del dc
 
         time_now = time.time_ns()
         if self.last_update_time is not None:
             elapsed_time = time_now - self.last_update_time
             fps = 1.0 / (elapsed_time / 10**9)
-            if self.torch_source_image is not None:
+            if self.torch_source_image[0] is not None:
                 self.fps_statistics.add_fps(fps)
             self.fps_text.SetLabelText("FPS = %0.2f" % self.fps_statistics.get_average_fps())
         self.last_update_time = time_now
 
         self.result_image_panel.Refresh()
 
+        thread0.join()
         thread1.join()
+        thread2.join()
+        thread3.join()
 
     def blend_with_background(self, numpy_image, background):
         alpha = numpy_image[3:4, :, :]
         color = numpy_image[0:3, :, :]
         new_color = color * alpha + (1.0 - alpha) * background[0:3, :, :]
         return torch.cat([new_color, background[3:4, :, :]], dim=0)
+
+    def change_composition_algorithm(self, event: wx.Event):
+        self.algorithm_mode = self.algorithm_mode_choice.GetSelection()
+        self.create_divided_images()
+        pass
+
+    def create_divided_images(self):
+        if self.torch_source_sets is None:
+            return
+
+        algo = self.algorithm_mode
+        if algo == 0:
+            self.torch_source_image[0] = self.torch_source_sets[0].to(self.device).to(self.poser.get_dtype())
+            self.torch_source_image[1] = self.torch_source_sets[1].to(self.device).to(self.poser.get_dtype())
+            self.torch_source_image[2] = self.torch_source_sets[2].to(self.device).to(self.poser.get_dtype())
+            self.torch_source_image[3] = self.torch_source_sets[3].to(self.device).to(self.poser.get_dtype())
+            pass
+        elif algo == 1:
+            self.torch_source_image[0] = self.torch_source_sets[0] * 5.0 + self.torch_source_sets[1] + self.torch_source_sets[2] + self.torch_source_sets[3]
+            self.torch_source_image[1] = self.torch_source_sets[0] + self.torch_source_sets[1] * 5.0 + self.torch_source_sets[2] + self.torch_source_sets[3]
+            self.torch_source_image[2] = self.torch_source_sets[0] + self.torch_source_sets[1] + self.torch_source_sets[2] * 5.0 + self.torch_source_sets[3]
+            self.torch_source_image[3] = self.torch_source_sets[0] + self.torch_source_sets[1] + self.torch_source_sets[2] + self.torch_source_sets[3] * 5.0
+            self.torch_source_image[0] = self.torch_source_image[0] / 8.0
+            self.torch_source_image[1] = self.torch_source_image[1] / 8.0
+            self.torch_source_image[2] = self.torch_source_image[2] / 8.0
+            self.torch_source_image[3] = self.torch_source_image[3] / 8.0
+            self.torch_source_image[0] = self.torch_source_image[0].to(self.device).to(self.poser.get_dtype())
+            self.torch_source_image[1] = self.torch_source_image[1].to(self.device).to(self.poser.get_dtype())
+            self.torch_source_image[2] = self.torch_source_image[2].to(self.device).to(self.poser.get_dtype())
+            self.torch_source_image[3] = self.torch_source_image[3].to(self.device).to(self.poser.get_dtype())
+            pass
+        elif algo == 2:
+            torch_source_cp = torch.zeros(4, 1024, 1024).float()
+            torch_source_cp[:, ::2, ::2] = self.torch_source_sets[0]
+            torch_source_cp[:, 1::2, ::2] = self.torch_source_sets[1]
+            torch_source_cp[:, ::2, 1::2] = self.torch_source_sets[2]
+            torch_source_cp[:, 1::2, 1::2] = self.torch_source_sets[3]
+
+            torch_source_temp = torch.zeros(4, 1026, 1026).float()
+            torch_source_temp[:, 1:1025, 1:1025] = torch_source_cp
+            torch_source_temp[:, 0:1, 1:1025] = torch_source_cp[:, 0:1, :]
+            torch_source_temp[:, 1:1025, 0:1] = torch_source_cp[:, :, 0:1]
+            torch_source_temp[:, 1025:1026, 1:1025] = torch_source_cp[:, 1023:1024, :]
+            torch_source_temp[:, 1:1025, 1025:1026] = torch_source_cp[:, :, 1023:1024]
+            torch_source_temp[:, 0:1, 0:1] = torch_source_cp[:, 0:1, 0:1]
+            torch_source_temp[:, 1025:1026, 0:1] = torch_source_cp[:, 1023:1024, 0:1]
+            torch_source_temp[:, 0:1, 1025:1026] = torch_source_cp[:, 0:1, 1023:1024]
+            torch_source_temp[:, 1025:1026, 1025:1026] = torch_source_cp[:, 1023:1024, 1023:1024]
+
+            self.torch_source_image[0] =   torch_source_temp[:, 0:1023:2, 0:1023:2]       + torch_source_temp[:, 1:1024:2, 0:1023:2] * 2.0 + torch_source_temp[:, 2:1025:2, 0:1023:2] \
+                                                 + torch_source_temp[:, 0:1023:2, 1:1024:2] * 2.0 + torch_source_temp[:, 1:1024:2, 1:1024:2] * 4.0 + torch_source_temp[:, 2:1025:2, 1:1024:2] * 2.0 \
+                                                 + torch_source_temp[:, 0:1023:2, 2:1025:2]       + torch_source_temp[:, 1:1024:2, 2:1025:2] * 2.0 + torch_source_temp[:, 2:1025:2, 2:1025:2]
+            self.torch_source_image[1] =   torch_source_temp[:, 1:1024:2, 0:1023:2]       + torch_source_temp[:, 2:1025:2, 0:1023:2] * 2.0 + torch_source_temp[:, 3:1026:2, 0:1023:2] \
+                                                 + torch_source_temp[:, 1:1024:2, 1:1024:2] * 2.0 + torch_source_temp[:, 2:1025:2, 1:1024:2] * 4.0 + torch_source_temp[:, 3:1026:2, 1:1024:2] * 2.0 \
+                                                 + torch_source_temp[:, 1:1024:2, 2:1025:2]       + torch_source_temp[:, 2:1025:2, 2:1025:2] * 2.0 + torch_source_temp[:, 3:1026:2, 2:1025:2]
+            self.torch_source_image[2] =   torch_source_temp[:, 0:1023:2, 1:1024:2]       + torch_source_temp[:, 1:1024:2, 1:1024:2] * 2.0 + torch_source_temp[:, 2:1025:2, 1:1024:2] \
+                                                 + torch_source_temp[:, 0:1023:2, 2:1025:2] * 2.0 + torch_source_temp[:, 1:1024:2, 2:1025:2] * 4.0 + torch_source_temp[:, 2:1025:2, 2:1025:2] * 2.0 \
+                                                 + torch_source_temp[:, 0:1023:2, 3:1026:2]       + torch_source_temp[:, 1:1024:2, 3:1026:2] * 2.0 + torch_source_temp[:, 2:1025:2, 3:1026:2]
+            self.torch_source_image[3] =   torch_source_temp[:, 1:1024:2, 1:1024:2]       + torch_source_temp[:, 2:1025:2, 1:1024:2] * 2.0 + torch_source_temp[:, 3:1026:2, 1:1024:2] \
+                                                 + torch_source_temp[:, 1:1024:2, 2:1025:2] * 2.0 + torch_source_temp[:, 2:1025:2, 2:1025:2] * 4.0 + torch_source_temp[:, 3:1026:2, 2:1025:2] * 2.0 \
+                                                 + torch_source_temp[:, 1:1024:2, 3:1026:2]       + torch_source_temp[:, 2:1025:2, 3:1026:2] * 2.0 + torch_source_temp[:, 3:1026:2, 3:1026:2]
+            self.torch_source_image[0] = self.torch_source_image[0] / 16.0
+            self.torch_source_image[1] = self.torch_source_image[1] / 16.0
+            self.torch_source_image[2] = self.torch_source_image[2] / 16.0
+            self.torch_source_image[3] = self.torch_source_image[3] / 16.0
+            self.torch_source_image[0] = self.torch_source_image[0].to(self.device).to(self.poser.get_dtype())
+            self.torch_source_image[1] = self.torch_source_image[1].to(self.device).to(self.poser.get_dtype())
+            self.torch_source_image[2] = self.torch_source_image[2].to(self.device).to(self.poser.get_dtype())
+            self.torch_source_image[3] = self.torch_source_image[3].to(self.device).to(self.poser.get_dtype())
+            pass
+        else:
+            self.torch_source_image[0] = self.torch_source_sets[0].to(self.device).to(self.poser.get_dtype())
+            self.torch_source_image[1] = self.torch_source_sets[1].to(self.device).to(self.poser.get_dtype())
+            self.torch_source_image[2] = self.torch_source_sets[2].to(self.device).to(self.poser.get_dtype())
+            self.torch_source_image[3] = self.torch_source_sets[3].to(self.device).to(self.poser.get_dtype())
+            pass
+        self.last_pose = None
+
+        return
 
     def load_image(self, event: wx.Event):
         dir_name = "data/images"
@@ -1021,7 +1049,7 @@ class MainFrame(wx.Frame):
             try:
                 pil_image = resize_PIL_image(
                     extract_PIL_image_from_filelike(image_file_name),
-                    (self.poser.get_image_size(), self.poser.get_image_size()))
+                    (self.image_size, self.image_size))
                 w, h = pil_image.size
                 if pil_image.mode != 'RGBA':
                     # self.source_image_string = "Image must have alpha channel!"
@@ -1033,7 +1061,18 @@ class MainFrame(wx.Frame):
                     self.source_image_string = None
                     image_list_index = self.source_image_list.GetCount()
                     wx_image = wx.Bitmap.FromBufferRGBA(w, h, pil_image.convert("RGBA").tobytes())
-                    torch_image = extract_pytorch_image_from_PIL_image(pil_image)
+                    torch_image_temp = extract_pytorch_image_from_PIL_image(pil_image)
+                    torch_image_temp_1 = torch_image_temp[:, ::2, ::2]
+                    torch_image_temp_2 = torch_image_temp[:, 1::2, ::2]
+                    torch_image_temp_3 = torch_image_temp[:, ::2, 1::2]
+                    torch_image_temp_4 = torch_image_temp[:, 1::2, 1::2]
+                    torch_image = [None] * 4
+                    torch_image[0] = torch_image_temp_1
+                    torch_image[1] = torch_image_temp_2
+                    torch_image[2] = torch_image_temp_3
+                    torch_image[3] = torch_image_temp_4
+
+                    # print(torch_image)
                     self.source_image_list.Append(file_dialog.GetFilename(), [pil_image, wx_image, torch_image, image_file_name])
                     self.source_image_list.SetSelection(image_list_index)
                     self.wx_source_image = wx_image
@@ -1070,7 +1109,8 @@ class MainFrame(wx.Frame):
         self.source_image_string = None
         self.wx_source_image = image_sets[1]
         self.update_source_image_bitmap()
-        self.torch_source_image = image_sets[2].to(self.device).to(self.poser.get_dtype())
+        self.torch_source_sets = image_sets[2]
+        self.create_divided_images()
         self.last_pose = None
         self.update_result_image_bitmap()
         self.Refresh()
@@ -1086,7 +1126,8 @@ class MainFrame(wx.Frame):
             self.source_image_string = None
             self.wx_source_image = image_sets[1]
             self.update_source_image_bitmap()
-            self.torch_source_image = image_sets[2].to(self.device).to(self.poser.get_dtype())
+            self.torch_source_sets = image_sets[2]
+            self.create_divided_images()
             self.last_pose = None
             self.update_result_image_bitmap()
             self.Refresh()
@@ -1108,9 +1149,10 @@ class MainFrame(wx.Frame):
 
         self.ifacialmocap_pose = create_default_ifacialmocap_pose()
         self.wx_source_image = None
-        self.torch_source_image = None
-        self.last_torch_image = None
+        self.torch_source_image = [None] * 4
+        self.last_torch_image = [None] * 4
         self.last_pose = None
+        self.torch_source_sets = None
 
         self.update_source_image_bitmap()
         self.update_result_image_bitmap()
