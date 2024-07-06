@@ -166,4 +166,3 @@ dependencies:
       - werkzeug==3.0.0
       - wsproto==1.2.0
       - wxpython==4.2.0
-prefix: C:\Users\Romario\miniconda3\envs\talking-head-anime-3-demo
