@@ -5,6 +5,10 @@ This repository contains demo programs for the [Talking Head(?) Anime from a Sin
 * The ``manual_poser`` lets you manipulate a character's facial expression, head rotation, body rotation, and chest expansion due to breathing through a graphical user interface. 
 * ``ifacialmocap_puppeteer`` lets you transfer your facial motion to an anime character.
 
+
+# Portable Version For Windows x64
+[Download on Huggingface](https://huggingface.co/megaaziib/talking-head-anime-3-demo-portable/tree/main)
+
 ## Try the Manual Poser on Google Colab
 
 If you do not have the required hardware (discussed below) or do not want to download the code and set up an environment to run it, click [![this link](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/pkhungurn/talking-head-anime-3-demo/blob/master/colab.ipynb) to try running the manual poser on [Google Colab](https://research.google.com/colaboratory/faq.html).
