@@ -39,6 +39,7 @@ One way to do so is to install [miniconda](https://repo.anaconda.com/miniconda/)
 > conda install pytorch torchvision torchaudio pytorch-cuda=11.8 -c pytorch -c nvidia
 > conda install scipy
 > pip install wxpython
+> pip install flask-cors
 > conda install matplotlib
 ```
 
