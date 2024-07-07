@@ -4,6 +4,7 @@ This repository contains demo programs for the [Talking Head(?) Anime from a Sin
 
 * The ``manual_poser`` lets you manipulate a character's facial expression, head rotation, body rotation, and chest expansion due to breathing through a graphical user interface. 
 * ``ifacialmocap_puppeteer`` lets you transfer your facial motion to an anime character.
+
 This version is added new function such as snapshot, recording and streaming to web browser.
 
 
