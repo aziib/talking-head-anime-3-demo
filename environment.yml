@@ -151,6 +151,7 @@ dependencies:
       - imageio==2.34.1
       - importlib-metadata==6.8.0
       - itsdangerous==2.1.2
+      - mediapipe>=0.9.1.0 # Added mediapipe
       - jax==0.4.13
       - ml-dtypes==0.2.0
       - opencv-contrib-python==4.10.0.84
